@@ -3,7 +3,7 @@ import ecdcpipeline.ContainerBuildNode
 import ecdcpipeline.PipelineBuilder
 
 container_build_nodes = [
-  'centos7-release': new ContainerBuildNode('essdmscdm/centos7-build-node:3.2.0', '/usr/bin/scl enable rh-python35 devtoolset-6 -- /bin/bash -e')
+  'centos7-release': new ContainerBuildNode('essdmscdm/centos7-build-node:3.4.0', '/usr/bin/scl enable rh-python35 devtoolset-6 -- /bin/bash -e')
 ]
 
 // Set number of old builds to keep.
@@ -12,7 +12,7 @@ properties([[
   strategy: [
     $class: 'LogRotator',
     artifactDaysToKeepStr: '',
-    artifactNumToKeepStr: 3,
+    artifactNumToKeepStr: '3',
     daysToKeepStr: '',
     numToKeepStr: ''
   ]
@@ -71,7 +71,7 @@ builders = pipeline_builder.createBuilders { container ->
     """
   }  // stage
 
-  pipeline_builder.stage("${container.key}: Formatting") {
+  pipeline_builder.stage("${container.key}: Archiving") {
     def archive_output = "${pipeline_builder.project}-${container.key}.tar.gz"
     container.sh """
       cd build
