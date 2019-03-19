@@ -7,6 +7,7 @@
 
 #include "AreaDetectorWriter.h"
 #include "HDFFile.h"
+#include "NDAr_NDArray_schema_generated.h"
 
 namespace NDAr {
 
@@ -39,7 +40,7 @@ AreaDetectorDataGuard::timestamp(FlatbufferMessage const &Message) const {
 }
 
 std::string AreaDetectorDataGuard::source_name(
-    const FileWriter::FlatbufferMessage &Message) const {
+    const FileWriter::FlatbufferMessage &) const {
   // The source name was left out of the relevant EPICS areaDetector plugin.
   // There is currently a pull request for adding this variable to the FB
   // schema. When the variable has been addded, this function will be updated.
@@ -50,7 +51,7 @@ std::string AreaDetectorDataGuard::source_name(
 ///
 /// The default is to use double as the element type.
 void AreaDetectorWriter::parse_config(std::string const &ConfigurationStream,
-                                      std::string const &ConfigurationModule) {
+                                      std::string const &) {
   auto Config = nlohmann::json::parse(ConfigurationStream);
   try {
     CueInterval = Config["cue_interval"].get<uint64_t>();
@@ -106,12 +107,18 @@ AreaDetectorWriter::init_hdf(hdf5::node::Group &HDFGroup,
   try {
     auto &CurrentGroup = HDFGroup;
     initValueDataset(CurrentGroup);
-    NeXusDataset::Time(CurrentGroup, NeXusDataset::Mode::Create,
-                       DefaultChunkSize);
-    NeXusDataset::CueIndex(CurrentGroup, NeXusDataset::Mode::Create,
-                           DefaultChunkSize);
-    NeXusDataset::CueTimestampZero(CurrentGroup, NeXusDataset::Mode::Create,
-                                   DefaultChunkSize);
+    NeXusDataset::Time(             // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
+    NeXusDataset::CueIndex(         // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
+    NeXusDataset::CueTimestampZero( // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
     auto ClassAttribute =
         CurrentGroup.attributes.create<std::string>("NX_class");
     ClassAttribute.write("NXlog");
@@ -121,9 +128,9 @@ AreaDetectorWriter::init_hdf(hdf5::node::Group &HDFGroup,
     LOG(Sev::Error, "Unable to initialise areaDetector data tree in "
                     "HDF file with error message: \"{}\"",
         E.what());
-    return HDFWriterModule::InitResult::ERROR_IO();
+    return HDFWriterModule::InitResult::ERROR;
   }
-  return FileWriterBase::InitResult::OK();
+  return FileWriterBase::InitResult::OK;
 }
 
 FileWriterBase::InitResult
@@ -141,9 +148,9 @@ AreaDetectorWriter::reopen(hdf5::node::Group &HDFGroup) {
     LOG(Sev::Error,
         "Failed to reopen datasets in HDF file with error message: \"{}\"",
         std::string(E.what()));
-    return HDFWriterModule::InitResult::ERROR_IO();
+    return HDFWriterModule::InitResult::ERROR;
   }
-  return FileWriterBase::InitResult::OK();
+  return FileWriterBase::InitResult::OK;
 }
 template <typename DataType, class DatasetType>
 void appendData(DatasetType &Dataset, const std::uint8_t *Pointer, size_t Size,
@@ -153,8 +160,7 @@ void appendData(DatasetType &Dataset, const std::uint8_t *Pointer, size_t Size,
       Shape);
 }
 
-FileWriterBase::WriteResult
-AreaDetectorWriter::write(const FileWriter::FlatbufferMessage &Message) {
+void AreaDetectorWriter::write(const FileWriter::FlatbufferMessage &Message) {
   auto NDAr = FB_Tables::GetNDArray(Message.data());
   auto DataShape = hdf5::Dimensions(NDAr->dims()->begin(), NDAr->dims()->end());
   auto CurrentTimestamp =
@@ -162,7 +168,7 @@ AreaDetectorWriter::write(const FileWriter::FlatbufferMessage &Message) {
   FB_Tables::DType Type = NDAr->dataType();
   auto DataPtr = NDAr->pData()->Data();
   auto NrOfElements = std::accumulate(
-      std::begin(DataShape), std::end(DataShape), 1, std::multiplies<double>());
+      std::begin(DataShape), std::end(DataShape), 1, std::multiplies<>());
 
   switch (Type) {
   case FB_Tables::DType::Int8:
@@ -193,8 +199,8 @@ AreaDetectorWriter::write(const FileWriter::FlatbufferMessage &Message) {
     appendData<const char>(Values, DataPtr, NrOfElements, DataShape);
     break;
   default:
-    return FileWriterBase::WriteResult::ERROR_BAD_FLATBUFFER();
-    break;
+    throw FileWriter::HDFWriterModuleRegistry::WriterException(
+        "Error in flatbuffer.");
   }
   Timestamp.appendElement(CurrentTimestamp);
   if (++CueCounter == CueInterval) {
@@ -202,20 +208,15 @@ AreaDetectorWriter::write(const FileWriter::FlatbufferMessage &Message) {
     CueTimestamp.appendElement(CurrentTimestamp);
     CueCounter = 0;
   }
-  return FileWriterBase::WriteResult::OK();
 }
 
 std::int32_t AreaDetectorWriter::flush() { return 0; }
 
 std::int32_t AreaDetectorWriter::close() { return 0; }
 
-void AreaDetectorWriter::enable_cq(CollectiveQueue *cq, HDFIDStore *hdf_store,
-                                   int mpi_rank) {
-  LOG(Sev::Error, "Collective queue not implemented.");
-}
 template <typename Type>
 std::unique_ptr<NeXusDataset::MultiDimDatasetBase>
-makeIt(hdf5::node::Group &Parent, hdf5::Dimensions &Shape,
+makeIt(hdf5::node::Group const &Parent, hdf5::Dimensions const &Shape,
        hdf5::Dimensions const &ChunkSize) {
   return std::make_unique<NeXusDataset::MultiDimDataset<Type>>(
       Parent, NeXusDataset::Mode::Create, Shape, ChunkSize);

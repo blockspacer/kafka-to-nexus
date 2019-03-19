@@ -11,17 +11,17 @@ std::map<std::string, FlatbufferReaderRegistry::ReaderPtr> &getReaders() {
   return _items;
 }
 
-FlatbufferReaderRegistry::ReaderPtr &find(std::string const &key) {
+FlatbufferReaderRegistry::ReaderPtr &find(std::string const &Key) {
   auto &_items = getReaders();
   try {
-    return _items.at(key);
+    return _items.at(Key);
   } catch (std::out_of_range &E) {
     auto s = fmt::format("No such Reader in registry: \"{}\"", E.what());
     std::throw_with_nested(std::out_of_range(s));
   }
 }
 
-void addReader(std::string FlatbufferID, FlatbufferReader::ptr &&item) {
+void addReader(std::string const &FlatbufferID, FlatbufferReader::ptr &&item) {
   auto &m = getReaders();
   if (FlatbufferID.size() != 4) {
     throw std::runtime_error(

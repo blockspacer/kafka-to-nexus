@@ -34,19 +34,20 @@ std::vector<DemuxTopic> &FileWriterTask::demuxers() { return Demuxers; }
 /// \param ExtraValue Used to help make a unique ID.
 /// \return A "unique" id.
 uint64_t createId(int ExtraValue) {
-  using namespace std::chrono;
+  namespace chrono = std::chrono;
   return (static_cast<uint64_t>(
-              duration_cast<nanoseconds>(system_clock::now().time_since_epoch())
+              chrono::duration_cast<chrono::nanoseconds>(
+                  chrono::system_clock::now().time_since_epoch())
                   .count())
           << 16) +
          (ExtraValue & 0xffff);
 }
 
 FileWriterTask::FileWriterTask(
-    std::string ServiceID_,
-    std::shared_ptr<KafkaW::ProducerTopic> StatusProducer_)
-    : ServiceId(std::move(ServiceID_)),
-      StatusProducer(std::move(StatusProducer_)) {
+    std::string TaskID,
+    std::shared_ptr<KafkaW::ProducerTopic> StatusProducerPtr)
+    : ServiceId(std::move(TaskID)),
+      StatusProducer(std::move(StatusProducerPtr)) {
   Id = createId(++n_FileWriterTask_created);
 }
 

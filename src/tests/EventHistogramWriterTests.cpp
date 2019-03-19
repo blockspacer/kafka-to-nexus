@@ -18,9 +18,9 @@ namespace FileWriter {
 namespace Schemas {
 namespace hs00 {
 #include "schemas/hs00_event_histogram_generated.h"
-}
-}
-}
+} // namespace hs00
+} // namespace Schemas
+} // namespace FileWriter
 
 using json = nlohmann::json;
 using FileWriter::Schemas::hs00::UnexpectedJsonInput;
@@ -46,8 +46,8 @@ public:
       FileWriter::HDFWriterModuleRegistry::Registrar<Writer> RegisterIt("hs00");
     } catch (...) {
     }
-    FlatbufferReaders["hs00"] = std::unique_ptr<FileWriter::FlatbufferReader>(
-        new FileWriter::Schemas::hs00::Reader);
+    FlatbufferReaders["hs00"] =
+        std::make_unique<FileWriter::Schemas::hs00::Reader>();
   }
 };
 
@@ -268,21 +268,20 @@ uint64_t getValueAtFlatIndex(uint32_t HistogramID, size_t Index,
 std::unique_ptr<flatbuffers::FlatBufferBuilder>
 createTestMessage(size_t HistogramID, size_t PacketID,
                   std::vector<uint32_t> const &DimLengths) {
-  using namespace FileWriter::Schemas::hs00;
-  auto BuilderPtr = std::unique_ptr<flatbuffers::FlatBufferBuilder>(
-      new flatbuffers::FlatBufferBuilder);
+  namespace hs00 = FileWriter::Schemas::hs00;
+  auto BuilderPtr = std::make_unique<flatbuffers::FlatBufferBuilder>();
   auto &Builder = *BuilderPtr;
   flatbuffers::Offset<void> BinBoundaries;
   {
     auto Vec = Builder.CreateVector(std::vector<double>({1, 2, 3, 4}));
-    ArrayDoubleBuilder ArrayBuilder(Builder);
+    hs00::ArrayDoubleBuilder ArrayBuilder(Builder);
     ArrayBuilder.add_value(Vec);
     BinBoundaries = ArrayBuilder.Finish().Union();
   }
 
-  std::vector<flatbuffers::Offset<DimensionMetaData>> DMDs;
+  std::vector<flatbuffers::Offset<hs00::DimensionMetaData>> DMDs;
   for (auto Length : DimLengths) {
-    DimensionMetaDataBuilder DMDBuilder(Builder);
+    hs00::DimensionMetaDataBuilder DMDBuilder(Builder);
     DMDBuilder.add_length(Length);
     DMDBuilder.add_bin_boundaries(BinBoundaries);
     DMDs.push_back(DMDBuilder.Finish());
@@ -298,7 +297,7 @@ createTestMessage(size_t HistogramID, size_t PacketID,
       (uint32_t(PacketID) / 2) * ThisLengths.at(0),
       (uint32_t(PacketID) % 2) * ThisLengths.at(1), 0};
 
-  uint64_t Timestamp = static_cast<uint64_t>((1 + HistogramID) * 1000000);
+  auto Timestamp = static_cast<uint64_t>((1 + HistogramID) * 1000000);
   auto ThisLengthsVector = Builder.CreateVector(ThisLengths);
   auto ThisOffsetsVector = Builder.CreateVector(ThisOffsets);
 
@@ -316,12 +315,6 @@ createTestMessage(size_t HistogramID, size_t PacketID,
           size_t O0 = ThisOffsets.at(0);
           size_t O1 = ThisOffsets.at(1);
           size_t O2 = ThisOffsets.at(2);
-          if (false) {
-            size_t K0 = 1 + I0 + O0;
-            size_t K1 = 1 + I1 + O1;
-            size_t K2 = 1 + I2 + O2;
-            Data.at(N) = Timestamp + 10000 * K0 + 100 * K1 + K2;
-          }
           Data.at(N) = 0;
           size_t Flat =
               (O2 + I2) +
@@ -332,7 +325,7 @@ createTestMessage(size_t HistogramID, size_t PacketID,
       }
     }
     auto Vec = Builder.CreateVector(Data);
-    ArrayULongBuilder ArrayBuilder(Builder);
+    hs00::ArrayULongBuilder ArrayBuilder(Builder);
     ArrayBuilder.add_value(Vec);
     DataValue = ArrayBuilder.Finish().Union();
   }
@@ -348,7 +341,7 @@ createTestMessage(size_t HistogramID, size_t PacketID,
       Data.at(i) = i * 1e-5;
     }
     auto Vec = Builder.CreateVector(Data);
-    ArrayDoubleBuilder ArrayBuilder(Builder);
+    hs00::ArrayDoubleBuilder ArrayBuilder(Builder);
     ArrayBuilder.add_value(Vec);
     ErrorValue = ArrayBuilder.Finish().Union();
   }
@@ -358,14 +351,14 @@ createTestMessage(size_t HistogramID, size_t PacketID,
     Info = Builder.CreateString("Some optional info string.");
   }
 
-  EventHistogramBuilder EHBuilder(Builder);
+  hs00::EventHistogramBuilder EHBuilder(Builder);
   EHBuilder.add_timestamp(Timestamp);
   EHBuilder.add_dim_metadata(DMDA);
   EHBuilder.add_current_shape(ThisLengthsVector);
   EHBuilder.add_offset(ThisOffsetsVector);
-  EHBuilder.add_data_type(Array::ArrayULong);
+  EHBuilder.add_data_type(hs00::Array::ArrayULong);
   EHBuilder.add_data(DataValue);
-  EHBuilder.add_errors_type(Array::ArrayDouble);
+  EHBuilder.add_errors_type(hs00::Array::ArrayDouble);
   EHBuilder.add_errors(ErrorValue);
   if (!Info.IsNull()) {
     EHBuilder.add_info(Info);
@@ -381,13 +374,15 @@ wrapBuilder(std::unique_ptr<flatbuffers::FlatBufferBuilder> const &Builder) {
       Builder->GetSize());
 }
 
+using FileWriter::HDFWriterModule_detail::InitResult;
+
 TEST_F(EventHistogramWriter, WriterInitHDF) {
   auto File = createFile("Test.EventHistogramWriter.WriterInitHDF",
                          FileCreationLocation::Default);
   auto Group = File.root();
   auto Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
 }
 
 TEST_F(EventHistogramWriter, WriterReopen) {
@@ -396,10 +391,10 @@ TEST_F(EventHistogramWriter, WriterReopen) {
   auto Group = File.root();
   auto Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
   Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->reopen(Group).is_OK());
+  ASSERT_TRUE(Writer->reopen(Group) == InitResult::OK);
 }
 
 TEST_F(EventHistogramWriter, WriteFullHistogramFromMultipleMessages) {
@@ -409,18 +404,14 @@ TEST_F(EventHistogramWriter, WriteFullHistogramFromMultipleMessages) {
   auto Group = File.root();
   auto Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
   Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->reopen(Group).is_OK());
+  ASSERT_TRUE(Writer->reopen(Group) == InitResult::OK);
   std::vector<uint32_t> DimLengths{4, 2, 2};
   for (size_t i = 0; i < 4; ++i) {
     auto M = createTestMessage(0, i, DimLengths);
-    auto X = Writer->write(wrapBuilder(M));
-    if (!X.is_OK()) {
-      throw std::runtime_error(X.to_str());
-    }
-    ASSERT_TRUE(X.is_OK());
+    ASSERT_NO_THROW(Writer->write(wrapBuilder(M)));
   }
   auto Histograms = Group.get_dataset("histograms");
   hdf5::dataspace::Simple Dataspace(Histograms.dataspace());
@@ -436,37 +427,25 @@ TEST_F(EventHistogramWriter, WriteMultipleHistograms) {
   auto Group = File.root();
   auto Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
   Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->reopen(Group).is_OK());
+  ASSERT_TRUE(Writer->reopen(Group) == InitResult::OK);
   std::vector<uint32_t> DimLengths{4, 2, 2};
   size_t HistogramID = 0;
   for (size_t i = 0; i < 3; ++i) {
     auto M = createTestMessage(HistogramID, i, DimLengths);
-    auto X = Writer->write(wrapBuilder(M));
-    if (!X.is_OK()) {
-      throw std::runtime_error(X.to_str());
-    }
-    ASSERT_TRUE(X.is_OK());
+    ASSERT_NO_THROW(Writer->write(wrapBuilder(M)));
   }
   ++HistogramID;
   for (size_t i = 0; i < 4; ++i) {
     auto M = createTestMessage(HistogramID, i, DimLengths);
-    auto X = Writer->write(wrapBuilder(M));
-    if (!X.is_OK()) {
-      throw std::runtime_error(X.to_str());
-    }
-    ASSERT_TRUE(X.is_OK());
+    ASSERT_NO_THROW(Writer->write(wrapBuilder(M)));
   }
   ++HistogramID;
   for (size_t i = 1; i < 4; ++i) {
     auto M = createTestMessage(HistogramID, i, DimLengths);
-    auto X = Writer->write(wrapBuilder(M));
-    if (!X.is_OK()) {
-      throw std::runtime_error(X.to_str());
-    }
-    ASSERT_TRUE(X.is_OK());
+    ASSERT_NO_THROW(Writer->write(wrapBuilder(M)));
   }
   Writer->close();
   auto Histograms = Group.get_dataset("histograms");
@@ -483,19 +462,15 @@ TEST_F(EventHistogramWriter, WriteManyHistograms) {
   auto Group = File.root();
   auto Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
   Writer = Writer::create();
   Writer->parse_config(createTestWriterTypedJson().dump(), "{}");
-  ASSERT_TRUE(Writer->reopen(Group).is_OK());
+  ASSERT_TRUE(Writer->reopen(Group) == InitResult::OK);
   std::vector<uint32_t> DimLengths{4, 2, 2};
   for (size_t HistogramID = 0; HistogramID < 18; ++HistogramID) {
     for (size_t i = 0; i < 4; ++i) {
       auto M = createTestMessage(HistogramID, i, DimLengths);
-      auto X = Writer->write(wrapBuilder(M));
-      if (!X.is_OK()) {
-        throw std::runtime_error(X.to_str());
-      }
-      ASSERT_TRUE(X.is_OK());
+      ASSERT_NO_THROW(Writer->write(wrapBuilder(M)));
     }
   }
   Writer->close();
@@ -522,22 +497,18 @@ TEST_F(EventHistogramWriter, WriteAMORExample) {
                          FileCreationLocation::Default);
   auto Group = File.root();
   auto Writer = Writer::create();
-  auto V1 = gulp("/s/amor-hs00-stream");
-  auto V2 = gulp("/s/amor-msg");
+  auto V1 = readFileIntoVector("/s/amor-hs00-stream");
+  auto V2 = readFileIntoVector("/s/amor-msg");
   if (V1.empty() && V2.empty()) {
     return;
   }
   std::string JsonBulk(V1.data(), V1.data() + V1.size());
   Writer->parse_config(JsonBulk, "{}");
-  ASSERT_TRUE(Writer->init_hdf(Group, "{}").is_OK());
+  ASSERT_TRUE(Writer->init_hdf(Group, "{}") == InitResult::OK);
   Writer = Writer::create();
   Writer->parse_config(JsonBulk, "{}");
-  ASSERT_TRUE(Writer->reopen(Group).is_OK());
+  ASSERT_TRUE(Writer->reopen(Group) == InitResult::OK);
   auto M = FileWriter::FlatbufferMessage(
       reinterpret_cast<const char *>(V2.data()), V2.size());
-  auto X = Writer->write(M);
-  if (!X.is_OK()) {
-    throw std::runtime_error(X.to_str());
-  }
-  ASSERT_TRUE(X.is_OK());
+  ASSERT_NO_THROW(Writer->write(M));
 }

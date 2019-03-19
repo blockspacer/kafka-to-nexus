@@ -1,5 +1,6 @@
 #include "Master.h"
 #include "CommandHandler.h"
+#include "Errors.h"
 #include "Msg.h"
 #include "helper.h"
 #include "json.h"
@@ -12,8 +13,7 @@
 
 namespace FileWriter {
 
-Master::Master(MainOpt &MainOpt_)
-    : command_listener(MainOpt_), MainOpt_(MainOpt_) {
+Master::Master(MainOpt &Config) : Listener(Config), MainConfig(Config) {
   std::vector<char> buffer;
   buffer.resize(128);
   gethostname(buffer.data(), buffer.size());
@@ -23,24 +23,30 @@ Master::Master(MainOpt &MainOpt_)
     LOG(Sev::Info, "Hostname got truncated: {}", buffer.data());
   }
   std::string hostname(buffer.data());
-  file_writer_process_id_ =
+  FileWriterProcessId =
       fmt::format("kafka-to-nexus--{}--{}", hostname, getpid_wrapper());
-  LOG(Sev::Info, "file_writer_process_id: {}", file_writer_process_id());
+  LOG(Sev::Info, "getFileWriterProcessId: {}",
+      Master::getFileWriterProcessId());
 }
 
-void Master::handle_command_message(std::unique_ptr<KafkaW::Msg> &&msg) {
+void Master::handle_command_message(std::unique_ptr<Msg> CommandMessage) {
   CommandHandler command_handler(getMainOpt(), this);
-  command_handler.tryToHandle(
-      Msg::owned((char const *)msg->data(), msg->size()));
+  if (CommandMessage->MetaData.TimestampType !=
+      RdKafka::MessageTimestamp::MSG_TIMESTAMP_NOT_AVAILABLE) {
+    auto TempTimeStamp = CommandMessage->MetaData.Timestamp;
+    command_handler.tryToHandle(std::move(CommandMessage), TempTimeStamp);
+  } else {
+    command_handler.tryToHandle(std::move(CommandMessage));
+  }
 }
 
-void Master::handle_command(std::string const &command) {
+void Master::handle_command(std::string const &Command) {
   CommandHandler command_handler(getMainOpt(), this);
-  command_handler.tryToHandle(command);
+  command_handler.tryToHandle(Command);
 }
 
 std::unique_ptr<StreamMaster<Streamer>> &
-Master::getStreamMasterForJobID(std::string JobID) {
+Master::getStreamMasterForJobID(std::string const &JobID) {
   for (auto &StreamMaster : StreamMasters) {
     if (StreamMaster->getJobId() == JobID) {
       return StreamMaster;
@@ -56,24 +62,31 @@ void Master::addStreamMaster(
 }
 
 struct OnScopeExit {
-  OnScopeExit(std::function<void()> Action) : ExitAction(Action){};
-  ~OnScopeExit() { ExitAction(); };
+  explicit OnScopeExit(std::function<void()> Action)
+      : ExitAction(std::move(Action)){};
+  ~OnScopeExit() {
+    try {
+      ExitAction();
+    } catch (std::bad_function_call &Error) {
+      LOG(Sev::Warning, "OnScopeExit::~OnScopeExit(): Failure to call.");
+    }
+  };
   std::function<void()> ExitAction;
 };
 
 void Master::run() {
   OnScopeExit SetExitFlag([this]() { HasExitedRunLoop = true; });
   // Set up connection to the Kafka status topic if desired.
-  if (getMainOpt().do_kafka_status) {
+  if (getMainOpt().ReportStatus) {
     LOG(Sev::Info, "Publishing status to kafka://{}/{}",
-        getMainOpt().kafka_status_uri.host_port,
-        getMainOpt().kafka_status_uri.topic);
+        getMainOpt().KafkaStatusURI.HostPort,
+        getMainOpt().KafkaStatusURI.Topic);
     KafkaW::BrokerSettings BrokerSettings;
-    BrokerSettings.Address = getMainOpt().kafka_status_uri.host_port;
+    BrokerSettings.Address = getMainOpt().KafkaStatusURI.HostPort;
     auto producer = std::make_shared<KafkaW::Producer>(BrokerSettings);
     try {
-      status_producer = std::make_shared<KafkaW::ProducerTopic>(
-          producer, getMainOpt().kafka_status_uri.topic);
+      StatusProducer = std::make_shared<KafkaW::ProducerTopic>(
+          producer, getMainOpt().KafkaStatusURI.Topic);
     } catch (KafkaW::TopicCreationError const &e) {
       LOG(Sev::Error, "Can not create Kafka status producer: {}", e.what());
     }
@@ -85,19 +98,20 @@ void Master::run() {
     this->handle_command(cmd);
   }
 
-  command_listener.start();
+  Listener.start();
   using Clock = std::chrono::steady_clock;
   auto t_last_statistics = Clock::now();
-  while (do_run) {
-    LOG(Sev::Debug, "Master poll");
-    auto p = command_listener.poll();
-    if (auto msg = p.isMsg()) {
+  while (Running) {
+    std::unique_ptr<std::pair<KafkaW::PollStatus, Msg>> KafkaMessage =
+        Listener.poll();
+    if (KafkaMessage->first == KafkaW::PollStatus::Message) {
       LOG(Sev::Debug, "Handle a command");
-      this->handle_command_message(std::move(msg));
+      this->handle_command_message(
+          std::make_unique<FileWriter::Msg>(std::move(KafkaMessage->second)));
     }
-    if (getMainOpt().do_kafka_status &&
+    if (getMainOpt().ReportStatus &&
         Clock::now() - t_last_statistics >
-            std::chrono::milliseconds(getMainOpt().status_master_interval)) {
+            std::chrono::milliseconds(getMainOpt().StatusMasterIntervalMS)) {
       t_last_statistics = Clock::now();
       statistics();
     }
@@ -106,7 +120,8 @@ void Master::run() {
     StreamMasters.erase(
         std::remove_if(StreamMasters.begin(), StreamMasters.end(),
                        [](std::unique_ptr<StreamMaster<Streamer>> &Iter) {
-                         return Iter->status().isRemovable();
+                         return Iter->status() ==
+                                Status::StreamMasterError::IS_REMOVABLE;
                        }),
         StreamMasters.end());
   }
@@ -122,13 +137,13 @@ void Master::stopStreamMasters() {
 }
 
 void Master::statistics() {
-  if (!status_producer) {
+  if (!StatusProducer) {
     return;
   }
   using nlohmann::json;
   auto Status = json::object();
   Status["type"] = "filewriter_status_master";
-  Status["service_id"] = getMainOpt().service_id;
+  Status["service_id"] = getMainOpt().ServiceID;
   Status["files"] = json::object();
   for (auto &StreamMaster : StreamMasters) {
     auto FilewriterTaskID =
@@ -137,19 +152,19 @@ void Master::statistics() {
     Status["files"][FilewriterTaskID] = FilewriterTaskStatus;
   }
   auto Buffer = Status.dump();
-  status_producer->produce((KafkaW::uchar *)Buffer.data(), Buffer.size());
+  StatusProducer->produce((unsigned char *)Buffer.data(), Buffer.size());
 }
 
-void Master::stop() { do_run = false; }
+void Master::stop() { Running = false; }
 
-std::string Master::file_writer_process_id() const {
-  return file_writer_process_id_;
+std::string Master::getFileWriterProcessId() const {
+  return FileWriterProcessId;
 }
 
-MainOpt &Master::getMainOpt() { return MainOpt_; }
+MainOpt &Master::getMainOpt() { return MainConfig; }
 
 std::shared_ptr<KafkaW::ProducerTopic> Master::getStatusProducer() {
-  return status_producer;
+  return StatusProducer;
 }
 
 } // namespace FileWriter

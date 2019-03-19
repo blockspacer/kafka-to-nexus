@@ -2,7 +2,7 @@
 #include "../../HDFFile.h"
 #include "../../helper.h"
 #include "../../json.h"
-#include "schemas/ev42_events_generated.h"
+#include "ev42_events_generated.h"
 
 namespace FileWriter {
 namespace Schemas {
@@ -14,7 +14,8 @@ struct append_ret {
   int status;
   uint64_t written_bytes;
   uint64_t ix0;
-  operator bool() const { return status == 0; }
+
+  explicit operator bool() const { return status == 0; }
 };
 
 static EventMessage const *get_fbuf(char const *data) {
@@ -22,19 +23,20 @@ static EventMessage const *get_fbuf(char const *data) {
 }
 
 bool FlatbufferReader::verify(FlatbufferMessage const &Message) const {
-  flatbuffers::Verifier veri((uint8_t *)Message.data(), Message.size());
-  return VerifyEventMessageBuffer(veri);
+  flatbuffers::Verifier VerifierInstance(
+      reinterpret_cast<const uint8_t *>(Message.data()), Message.size());
+  return VerifyEventMessageBuffer(VerifierInstance);
 }
 
 std::string
 FlatbufferReader::source_name(FlatbufferMessage const &Message) const {
   auto fbuf = get_fbuf(Message.data());
-  auto s1 = fbuf->source_name();
-  if (!s1) {
+  auto NamePtr = fbuf->source_name();
+  if (NamePtr == nullptr) {
     LOG(Sev::Notice, "message has no source_name");
     return "";
   }
-  return s1->str();
+  return NamePtr->str();
 }
 
 uint64_t FlatbufferReader::timestamp(FlatbufferMessage const &Message) const {
@@ -46,7 +48,7 @@ static FlatbufferReaderRegistry::Registrar<FlatbufferReader>
     RegisterReader("ev42");
 
 void HDFWriterModule::parse_config(std::string const &ConfigurationStream,
-                                   std::string const &ConfigurationModule) {
+                                   std::string const &) {
   auto ConfigurationStreamJson = json::parse(ConfigurationStream);
   try {
     index_every_bytes =
@@ -111,21 +113,20 @@ void HDFWriterModule::parse_config(std::string const &ConfigurationStream,
 HDFWriterModule::InitResult
 HDFWriterModule::init_hdf(hdf5::node::Group &HDFGroup,
                           std::string const &HDFAttributes) {
-  // Keep these for now, experimenting with those on another branch.
-  CollectiveQueue *cq = nullptr;
+
   try {
     this->ds_event_time_offset = h5::h5d_chunked_1d<uint32_t>::create(
-        HDFGroup, "event_time_offset", chunk_bytes, cq);
-    this->ds_event_id = h5::h5d_chunked_1d<uint32_t>::create(
-        HDFGroup, "event_id", chunk_bytes, cq);
+        HDFGroup, "event_time_offset", chunk_bytes);
+    this->ds_event_id =
+        h5::h5d_chunked_1d<uint32_t>::create(HDFGroup, "event_id", chunk_bytes);
     this->ds_event_time_zero = h5::h5d_chunked_1d<uint64_t>::create(
-        HDFGroup, "event_time_zero", chunk_bytes, cq);
+        HDFGroup, "event_time_zero", chunk_bytes);
     this->ds_event_index = h5::h5d_chunked_1d<uint32_t>::create(
-        HDFGroup, "event_index", chunk_bytes, cq);
+        HDFGroup, "event_index", chunk_bytes);
     this->ds_cue_index = h5::h5d_chunked_1d<uint32_t>::create(
-        HDFGroup, "cue_index", chunk_bytes, cq);
+        HDFGroup, "cue_index", chunk_bytes);
     this->ds_cue_timestamp_zero = h5::h5d_chunked_1d<uint64_t>::create(
-        HDFGroup, "cue_timestamp_zero", chunk_bytes, cq);
+        HDFGroup, "cue_timestamp_zero", chunk_bytes);
 
     if (!ds_event_time_offset || !ds_event_id || !ds_event_time_zero ||
         !ds_event_index || !ds_cue_index || !ds_cue_timestamp_zero) {
@@ -135,33 +136,33 @@ HDFWriterModule::init_hdf(hdf5::node::Group &HDFGroup,
       ds_event_index.reset();
       ds_cue_index.reset();
       ds_cue_timestamp_zero.reset();
+      throw std::runtime_error("Dataset init failed");
     }
     auto AttributesJson = nlohmann::json::parse(HDFAttributes);
     HDFFile::writeAttributes(HDFGroup, &AttributesJson);
-  } catch (std::exception &e) {
-    auto message = hdf5::error::print_nested(e);
-    LOG(Sev::Error, "ev42 could not init hdf_parent: {}  trace: {}",
-        static_cast<std::string>(HDFGroup.link().path()), message);
+  } catch (std::exception const &E) {
+    auto message = hdf5::error::print_nested(E);
+    throw std::runtime_error(
+        fmt::format("ev42 could not init hdf_parent: {}  trace: {}",
+                    static_cast<std::string>(HDFGroup.link().path()), message));
   }
-  return HDFWriterModule::InitResult::OK();
+  return HDFWriterModule::InitResult::OK;
 }
 
 HDFWriterModule::InitResult
 HDFWriterModule::reopen(hdf5::node::Group &HDFGroup) {
   // Keep these for now, experimenting with those on another branch.
-  HDFIDStore *hdf_store = nullptr;
-  this->ds_event_time_offset = h5::h5d_chunked_1d<uint32_t>::open(
-      HDFGroup, "event_time_offset", cq, hdf_store);
-  this->ds_event_id =
-      h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "event_id", cq, hdf_store);
-  this->ds_event_time_zero = h5::h5d_chunked_1d<uint64_t>::open(
-      HDFGroup, "event_time_zero", cq, hdf_store);
-  this->ds_event_index = h5::h5d_chunked_1d<uint32_t>::open(
-      HDFGroup, "event_index", cq, hdf_store);
+  this->ds_event_time_offset =
+      h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "event_time_offset");
+  this->ds_event_id = h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "event_id");
+  this->ds_event_time_zero =
+      h5::h5d_chunked_1d<uint64_t>::open(HDFGroup, "event_time_zero");
+  this->ds_event_index =
+      h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "event_index");
   this->ds_cue_index =
-      h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "cue_index", cq, hdf_store);
-  this->ds_cue_timestamp_zero = h5::h5d_chunked_1d<uint64_t>::open(
-      HDFGroup, "cue_timestamp_zero", cq, hdf_store);
+      h5::h5d_chunked_1d<uint32_t>::open(HDFGroup, "cue_index");
+  this->ds_cue_timestamp_zero =
+      h5::h5d_chunked_1d<uint64_t>::open(HDFGroup, "cue_timestamp_zero");
 
   ds_event_time_offset->buffer_init(buffer_size, buffer_packet_max);
   ds_event_id->buffer_init(buffer_size, buffer_packet_max);
@@ -178,14 +179,17 @@ HDFWriterModule::reopen(hdf5::node::Group &HDFGroup) {
     ds_event_index.reset();
     ds_cue_index.reset();
     ds_cue_timestamp_zero.reset();
+    throw std::runtime_error(
+        fmt::format("ev42 could not init hdf_parent: {}",
+                    static_cast<std::string>(HDFGroup.link().path())));
   }
-  return HDFWriterModule::InitResult::OK();
+  return HDFWriterModule::InitResult::OK;
 }
 
-HDFWriterModule::WriteResult
-HDFWriterModule::write(FlatbufferMessage const &Message) {
+void HDFWriterModule::write(FlatbufferMessage const &Message) {
   if (!ds_event_time_offset) {
-    return HDFWriterModule::WriteResult::ERROR_IO();
+    throw FileWriter::HDFWriterModuleRegistry::WriterException(
+        "Error, time of flight not present.");
   }
   auto fbuf = get_fbuf(Message.data());
   auto w1ret = this->ds_event_time_offset->append_data_1d(
@@ -206,7 +210,6 @@ HDFWriterModule::write(FlatbufferMessage const &Message) {
     this->ds_cue_index->append_data_1d(&event_index, 1);
     index_at_bytes = total_written_bytes;
   }
-  return HDFWriterModule::WriteResult::OK_WITH_TIMESTAMP(fbuf->pulse_time());
 }
 
 int32_t HDFWriterModule::flush() { return 0; }
@@ -219,34 +222,6 @@ int32_t HDFWriterModule::close() {
   ds_cue_index.reset();
   ds_cue_timestamp_zero.reset();
   return 0;
-}
-
-void HDFWriterModule::enable_cq(CollectiveQueue *cq, HDFIDStore *hdf_store,
-                                int mpi_rank) {
-  this->cq = cq;
-  ds_event_time_offset->ds.cq = cq;
-  ds_event_time_offset->ds.hdf_store = hdf_store;
-  ds_event_time_offset->ds.mpi_rank = mpi_rank;
-
-  ds_event_id->ds.cq = cq;
-  ds_event_id->ds.hdf_store = hdf_store;
-  ds_event_id->ds.mpi_rank = mpi_rank;
-
-  ds_event_time_zero->ds.cq = cq;
-  ds_event_time_zero->ds.hdf_store = hdf_store;
-  ds_event_time_zero->ds.mpi_rank = mpi_rank;
-
-  ds_event_index->ds.cq = cq;
-  ds_event_index->ds.hdf_store = hdf_store;
-  ds_event_index->ds.mpi_rank = mpi_rank;
-
-  ds_cue_index->ds.cq = cq;
-  ds_cue_index->ds.hdf_store = hdf_store;
-  ds_cue_index->ds.mpi_rank = mpi_rank;
-
-  ds_cue_timestamp_zero->ds.cq = cq;
-  ds_cue_timestamp_zero->ds.hdf_store = hdf_store;
-  ds_cue_timestamp_zero->ds.mpi_rank = mpi_rank;
 }
 
 static HDFWriterModuleRegistry::Registrar<HDFWriterModule>

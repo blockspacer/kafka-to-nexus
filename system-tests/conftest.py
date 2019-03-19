@@ -2,12 +2,12 @@ import os.path
 import pytest
 from compose.cli.main import TopLevelCommand, project_from_options
 from confluent_kafka import Producer
+from confluent_kafka.admin import AdminClient
 import docker
 from datetime import datetime
+from time import sleep
+from helpers.timehelpers import unix_time_milliseconds
 
-def unix_time_milliseconds(dt):
-    epoch = datetime.utcfromtimestamp(0)
-    return (dt - epoch).total_seconds() * 1000.0
 
 def wait_until_kafka_ready(docker_cmd, docker_options):
     print('Waiting for Kafka broker to be ready for system tests...')
@@ -33,6 +33,23 @@ def wait_until_kafka_ready(docker_cmd, docker_options):
         docker_cmd.down(docker_options)  # Bring down containers cleanly
         raise Exception('Kafka broker was not ready after 100 seconds, aborting tests.')
 
+    client = AdminClient(conf)
+    topic_ready = False
+
+    n_polls = 0
+    while n_polls < 10 and not topic_ready:
+        topics = client.list_topics().topics.keys()
+        if "TEST_writerCommand" in topics and "TEST_writerCommandMultiple" in topics:
+            topic_ready = True
+            print("Topic is ready!", flush=True)
+            break
+        sleep(6)
+        n_polls += 1
+
+    if not topic_ready:
+        docker_cmd.down(docker_options)  # Bring down containers cleanly
+        raise Exception('Kafka topic was not ready after 60 seconds, aborting tests.')
+
 
 common_options = {"--no-deps": False,
                   "--always-recreate-deps": False,
@@ -54,6 +71,7 @@ common_options = {"--no-deps": False,
                   }
 
 
+@pytest.fixture(scope="session", autouse=True)
 def build_filewriter_image():
     client = docker.from_env()
     print("Building Filewriter image", flush=True)
@@ -62,6 +80,8 @@ def build_filewriter_image():
         build_args["http_proxy"] = os.environ["http_proxy"]
     if "https_proxy" in os.environ:
         build_args["https_proxy"] = os.environ["https_proxy"]
+    if "local_conan_server" in os.environ:
+        build_args["local_conan_server"] = os.environ["local_conan_server"]
     image, logs = client.images.build(path="../", tag="kafka-to-nexus:latest", rm=False, buildargs=build_args)
     for item in logs:
         print(item, flush=True)
@@ -75,14 +95,6 @@ def run_containers(cmd, options):
 
 
 def build_and_run(options, request):
-    try:
-        print("Removing previous NeXus file", flush=True)
-        os.remove(os.path.join(os.path.join(os.getcwd(), "output-files"), "output_file.nxs"))
-        print("Removed previous NeXus file", flush=True)
-    except OSError:
-        print("No previous NeXus file found, continuing..")
-
-    build_filewriter_image()
     project = project_from_options(os.path.dirname(__file__), options)
     cmd = TopLevelCommand(project)
     start_time = str(int(unix_time_milliseconds(datetime.utcnow())))
@@ -91,6 +103,16 @@ def build_and_run(options, request):
     def fin():
         # Stop the containers then remove them and their volumes (--volumes option)
         print("containers stopping", flush=True)
+        try:
+            # Used for when there are multiple filewriter instances
+            # as the service is not called "filewriter"
+            multiple_log_options = dict(options)
+            multiple_log_options["SERVICE"] = ["filewriter1", "filewriter2"]
+            cmd.logs(multiple_log_options)
+        except:
+            log_options = dict(options)
+            log_options["SERVICE"] = ["filewriter"]
+            cmd.logs(log_options)
         options["--timeout"] = 30
         cmd.down(options)
         print("containers stopped", flush=True)
@@ -102,15 +124,46 @@ def build_and_run(options, request):
     # from to get all data which was published
     return start_time
 
+
+@pytest.fixture(scope="session", autouse=True)
+def start_kafka(request):
+    print("Starting zookeeper and kafka", flush=True)
+    options = common_options
+    options["--project-name"] = "kafka"
+    options["--file"] = ["docker-compose-kafka.yml"]
+    project = project_from_options(os.path.dirname(__file__), options)
+    cmd = TopLevelCommand(project)
+
+    cmd.up(options)
+    print("Started kafka containers", flush=True)
+    wait_until_kafka_ready(cmd, options)
+
+    def fin():
+        print("Stopping zookeeper and kafka", flush=True)
+        options["--timeout"] = 30
+        options["--project-name"] = "kafka"
+        options["--file"] = ["docker-compose-kafka.yml"]
+        cmd.down(options)
+    request.addfinalizer(fin)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def remove_logs_from_previous_run(request):
+    print("Removing previous NeXus files", flush=True)
+    output_dir_name = os.path.join(os.getcwd(), "output-files")
+    output_dirlist = os.listdir(output_dir_name)
+    for filename in output_dirlist:
+        if filename.endswith(".nxs"):
+            os.remove(os.path.join(output_dir_name, filename))
+    print("Removed previous NeXus files", flush=True)
     print("Removing previous log files", flush=True)
-    dir_name = os.path.join(os.getcwd(), "logs")
-    dirlist = os.listdir(dir_name)
+    log_dir_name = os.path.join(os.getcwd(), "logs")
+    dirlist = os.listdir(log_dir_name)
     for filename in dirlist:
         if filename.endswith(".log"):
-            os.remove(os.path.join(dir_name, filename))
+            os.remove(os.path.join(log_dir_name, filename))
     print("Removed previous log files", flush=True)
+
 
 @pytest.fixture(scope="module")
 def docker_compose(request):
@@ -122,4 +175,52 @@ def docker_compose(request):
     # Options must be given as long form
     options = common_options
     options["--file"] = ["docker-compose.yml"]
+    return build_and_run(options, request)
+
+
+@pytest.fixture(scope="module")
+def docker_compose_multiple_instances(request):
+    """
+    :type request: _pytest.python.FixtureRequest
+    """
+    print("Started preparing test environment...", flush=True)
+
+    # Options must be given as long form
+    options = common_options
+    options["--file"] = ["docker-compose-multiple-instances.yml"]
+    return build_and_run(options, request)
+
+
+@pytest.fixture(scope="module")
+def docker_compose_stop_command_does_not_persist(request):
+    """
+    :type request: _pytest.python.FixtureRequest
+    """
+    print("Started preparing test environment...", flush=True)
+    options = common_options
+    options["--file"] = ["docker-compose-stop-command.yml"]
+    return build_and_run(options, request)
+
+
+@pytest.fixture(scope="module")
+def docker_compose_static_data(request):
+    """
+    :type request: _pytest.python.FixtureRequest
+    """
+    print("Started preparing test environment...", flush=True)
+    # Options must be given as long form
+    options = common_options
+    options["--file"] = ["docker-compose-static-data.yml"]
+    return build_and_run(options, request)
+
+
+@pytest.fixture(scope="module", autouse=False)
+def docker_compose_long_running(request):
+    """
+    :type request: _pytest.python.FixtureRequest
+    """
+    print("Started preparing test environment...", flush=True)
+    # Options must be given as long form
+    options = common_options
+    options["--file"] = ["docker-compose-lr.yml"]
     return build_and_run(options, request)

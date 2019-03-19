@@ -15,7 +15,7 @@ namespace FileWriter {
 namespace Schemas {
 namespace hs00 {
 
-#include "schemas/hs00_event_histogram_generated.h"
+#include "hs00_event_histogram_generated.h"
 
 template <typename DataType, typename EdgeType, typename ErrorType>
 class WriterTyped : public WriterUntyped {
@@ -41,8 +41,7 @@ public:
   /// \param ChunkBytes
   void createHDFStructure(hdf5::node::Group &Group, size_t ChunkBytes) override;
 
-  HDFWriterModule::WriteResult write(FlatbufferMessage const &Message,
-                                     bool DoFlushEachWrite) override;
+  void write(FlatbufferMessage const &Message, bool DoFlushEachWrite) override;
 
   ~WriterTyped() override;
   int close() override;
@@ -151,8 +150,8 @@ int WriterTyped<DataType, EdgeType, ErrorType>::copyLatestToData(
     if (Dims.at(0) > 0) {
       std::vector<DataType> Buffer;
       size_t N = 1;
-      for (size_t I = 0; I < DimsMem.size(); ++I) {
-        N *= DimsMem.at(I);
+      for (size_t I : DimsMem) {
+        N *= I;
       }
       Buffer.resize(N);
       Dataset.read(Buffer, Type, SpaceMem, SpaceIn);
@@ -177,8 +176,8 @@ WriterTyped<DataType, EdgeType, ErrorType>::createFromJson(json const &Json) {
   }
   auto TheWriterTypedPtr =
       std::make_unique<WriterTyped<DataType, EdgeType, ErrorType>>();
-  auto &TheWriterTyped = *TheWriterTypedPtr;
   try {
+    auto &TheWriterTyped = *TheWriterTypedPtr;
     TheWriterTyped.TheShape = Shape<EdgeType>::createFromJson(Json.at("shape"));
     try {
       TheWriterTyped.DoConvertEdgeTypeToFloat =
@@ -215,9 +214,8 @@ void WriterTyped<DataType, EdgeType, ErrorType>::createHDFStructure(
     hdf5::node::Group &Group, size_t ChunkBytes) {
   Group.attributes.create_from("created_from_json", CreatedFromJson);
   this->ChunkBytes = ChunkBytes;
-  auto Type = hdf5::datatype::create<DataType>().native_type();
-  hdf5::dataspace::Simple Space;
   {
+    auto Type = hdf5::datatype::create<DataType>().native_type();
     auto const &Dims = TheShape.getDimensions();
     std::vector<hsize_t> SizeNow{0};
     std::vector<hsize_t> SizeMax{H5S_UNLIMITED};
@@ -225,32 +223,30 @@ void WriterTyped<DataType, EdgeType, ErrorType>::createHDFStructure(
       SizeNow.push_back(Dim.getSize());
       SizeMax.push_back(Dim.getSize());
     }
-    Space = hdf5::dataspace::Simple(SizeNow, SizeMax);
-  }
-  hdf5::property::DatasetCreationList DCPL;
-  {
-    auto Dims = Space.maximum_dimensions();
-    std::vector<hsize_t> ChunkElements(Dims.size());
+    auto Space = hdf5::dataspace::Simple(SizeNow, SizeMax);
+
+    hdf5::property::DatasetCreationList DCPL;
+    auto MaxDims = Space.maximum_dimensions();
+    std::vector<hsize_t> ChunkElements(MaxDims.size());
     ChunkElements.at(0) = ChunkBytes / Type.size();
-    for (size_t i = 1; i < Dims.size(); ++i) {
-      ChunkElements.at(i) = Dims.at(i);
-      ChunkElements.at(0) /= Dims.at(i);
+    for (size_t i = 1; i < MaxDims.size(); ++i) {
+      ChunkElements.at(i) = MaxDims.at(i);
+      ChunkElements.at(0) /= MaxDims.at(i);
     }
     if (ChunkElements.at(0) == 0) {
       ChunkElements.at(0) = 1;
     }
     DCPL.chunk(ChunkElements);
-  }
-  {
     if (0 > H5Pset_deflate(static_cast<hid_t>(DCPL), 7)) {
       LOG(Sev::Critical, "can not use gzip filter on hdf5. Is hdf5 not built "
                          "with gzip support?");
     }
+    Dataset = Group.create_dataset("histograms", Type, Space, DCPL);
+    copyLatestToData(0);
+    DatasetErrors = Group.create_dataset(
+        "errors", hdf5::datatype::create<ErrorType>().native_type(), Space,
+        DCPL);
   }
-  Dataset = Group.create_dataset("histograms", Type, Space, DCPL);
-  copyLatestToData(0);
-  DatasetErrors = Group.create_dataset(
-      "errors", hdf5::datatype::create<ErrorType>().native_type(), Space, DCPL);
   {
     hdf5::property::DatasetCreationList DCPL;
     DCPL.chunk({4 * 1024, 2});
@@ -296,8 +292,8 @@ void WriterTyped<DataType, EdgeType, ErrorType>::createHDFStructure(
       auto TypeUTF8 = hdf5::datatype::String(
           hdf5::datatype::create<std::string>().native_type());
       TypeUTF8.encoding(hdf5::datatype::CharacterEncoding::UTF8);
-      auto SpaceMem = hdf5::dataspace::Simple({1}, {1});
-      Dataset.attributes.create("units", TypeUTF8, SpaceMem)
+      auto CurrentSpaceMem = hdf5::dataspace::Simple({1}, {1});
+      Dataset.attributes.create("units", TypeUTF8, CurrentSpaceMem)
           .write(Dim.getUnit());
     }
     ++DimId;
@@ -307,50 +303,49 @@ void WriterTyped<DataType, EdgeType, ErrorType>::createHDFStructure(
 template <typename DataType> Array getMatchingFlatbufferType(DataType *);
 
 template <typename DataType, typename EdgeType, typename ErrorType>
-HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
+void WriterTyped<DataType, EdgeType, ErrorType>::write(
     FlatbufferMessage const &Message, bool DoFlushEachWrite) {
+  using HDFWriterModuleRegistry::WriterException;
+
   if (!Dataset.is_valid()) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE("invalid dataset");
+    throw WriterException("Invalid dataset");
   }
   auto Dims = hdf5::dataspace::Simple(Dataset.dataspace()).current_dimensions();
-  if (Dims.size() < 1) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE("Dims.size() < 1");
+  if (Dims.empty()) {
+    throw WriterException("Dims is empty");
   }
   auto EvMsg = GetEventHistogram(Message.data());
   uint64_t Timestamp = EvMsg->timestamp();
   if (Timestamp == 0) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE("Timestamp == 0");
+    throw WriterException("Timestamp == 0");
   }
   if (EvMsg->data_type() != getMatchingFlatbufferType<DataType>(nullptr)) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
+    throw WriterException(
         "EvMsg->data_type() != getMatchingFlatbufferType<DataType>(nullptr)");
   }
   auto DataUnion = static_cast<FlatbufferDataType const *>(EvMsg->data());
   if (!DataUnion) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE("!DataUnion");
+    throw WriterException("!DataUnion");
   }
   auto DataPtr = DataUnion->value();
   if (!DataPtr) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE("!DataPtr");
+    throw WriterException("!DataPtr");
   }
   flatbuffers::Vector<ErrorType> const *ErrorsPtr = nullptr;
   auto ErrorsUnion = static_cast<FlatbufferErrorType const *>(EvMsg->errors());
   if (ErrorsUnion) {
     if (EvMsg->errors_type() != getMatchingFlatbufferType<ErrorType>(nullptr)) {
-      return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-          "EvMsg->errors_type() != "
-          "getMatchingFlatbufferType<ErrorType>(nullptr)");
+      throw WriterException("EvMsg->errors_type() != "
+                            "getMatchingFlatbufferType<ErrorType>(nullptr)");
     }
     ErrorsPtr = ErrorsUnion->value();
   }
   auto MsgShape = EvMsg->current_shape();
   if (!MsgShape) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-        "Missing current_shape");
+    throw WriterException("Missing current_shape");
   }
   if (MsgShape->size() != Dims.size() - 1) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-        "Wrong size of shape");
+    throw WriterException("Wrong size of shape");
   }
   std::vector<uint32_t> TheOffsets;
   TheOffsets.resize(MsgShape->size());
@@ -360,8 +355,7 @@ HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
       for (size_t I = 0; I < TheOffsets.size(); ++I) {
         auto X = MsgOffset->data()[I];
         if (X + MsgShape->data()[I] > Dims.at(I + 1)) {
-          return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-              "Shape not consistent");
+          throw WriterException("Shape not consistent");
         }
         TheOffsets.at(I) = X;
       }
@@ -372,17 +366,15 @@ HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
     ExpectedLinearDataSize *= MsgShape->data()[i];
   }
   if (ExpectedLinearDataSize != DataPtr->size()) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-        "Unexpected data size");
+    throw WriterException("Unexpected data size");
   }
   if (ErrorsPtr) {
     if (ExpectedLinearDataSize != ErrorsPtr->size()) {
-      return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-          "Unexpected errors size");
+      throw WriterException("Unexpected errors size");
     }
   }
   if (Timestamp + 40l * 1000000000l < LargestTimestampSeen) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
+    throw WriterException(
         fmt::format("Old histogram: Timestamp: {}  LargestTimestampSeen: {}",
                     Timestamp, LargestTimestampSeen));
   }
@@ -414,8 +406,7 @@ HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
                             MsgShape->data() + MsgShape->size()));
   auto &Record = HistogramRecords[Timestamp];
   if (!Record.hasEmptySlice(TheSlice)) {
-    return HDFWriterModule::WriteResult::ERROR_WITH_MESSAGE(
-        "Slice already at least partially filled");
+    throw WriterException("Slice already at least partially filled");
   }
   Record.addSlice(TheSlice);
   hdf5::dataspace::Simple DSPMem;
@@ -469,30 +460,32 @@ HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
       auto TypeMem = hdf5::datatype::String(
           hdf5::datatype::create<std::string>().native_type());
       TypeMem.encoding(hdf5::datatype::CharacterEncoding::UTF8);
-      auto DSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
-      auto Dims = DSPFile.current_dimensions();
-      Dims.at(0) += 1;
-      DatasetInfo.extent(Dims);
-      DSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
-      DSPFile.selection(
+      auto SimpleDSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
+      auto CurrentDims = SimpleDSPFile.current_dimensions();
+      CurrentDims.at(0) += 1;
+      DatasetInfo.extent(CurrentDims);
+      SimpleDSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
+      SimpleDSPFile.selection(
           hdf5::dataspace::SelectionOperation::SET,
-          hdf5::dataspace::Hyperslab({Dims.at(0) - 1}, {1}, {1}, {1}));
+          hdf5::dataspace::Hyperslab({CurrentDims.at(0) - 1}, {1}, {1}, {1}));
       DSPMem = hdf5::dataspace::Simple({1}, {1});
       DatasetInfo.write(std::vector<std::string>({EvMsg->info()->str()}),
-                        TypeMem, DSPMem, DSPFile);
+                        TypeMem, DSPMem, SimpleDSPFile);
     }
     {
-      auto DSPFile = hdf5::dataspace::Simple(DatasetInfoTimestamp.dataspace());
-      auto Dims = DSPFile.current_dimensions();
-      Dims.at(0) += 1;
-      DatasetInfoTimestamp.extent(Dims);
-      DSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
-      DSPFile.selection(
+      auto CurrentDSPFile =
+          hdf5::dataspace::Simple(DatasetInfoTimestamp.dataspace());
+      auto CurrentDims = CurrentDSPFile.current_dimensions();
+      CurrentDims.at(0) += 1;
+      DatasetInfoTimestamp.extent(CurrentDims);
+      CurrentDSPFile = hdf5::dataspace::Simple(DatasetInfo.dataspace());
+      CurrentDSPFile.selection(
           hdf5::dataspace::SelectionOperation::SET,
-          hdf5::dataspace::Hyperslab({Dims.at(0) - 1}, {1}, {1}, {1}));
-      auto DSPMem = hdf5::dataspace::Simple({1}, {1});
+          hdf5::dataspace::Hyperslab({CurrentDims.at(0) - 1}, {1}, {1}, {1}));
+      auto CurrentDSPMem = hdf5::dataspace::Simple({1}, {1});
       auto TypeMem = hdf5::datatype::create<uint64_t>().native_type();
-      DatasetInfoTimestamp.write(Timestamp, TypeMem, DSPMem, DSPFile);
+      DatasetInfoTimestamp.write(Timestamp, TypeMem, CurrentDSPMem,
+                                 CurrentDSPFile);
     }
   }
 
@@ -504,8 +497,7 @@ HDFWriterModule::WriteResult WriterTyped<DataType, EdgeType, ErrorType>::write(
     Dataset.link().file().flush(hdf5::file::Scope::GLOBAL);
   }
   LOG(Sev::Debug, "hs00 -------------------------------   DONE");
-  return HDFWriterModule::WriteResult::OK();
 }
-}
-}
-}
+} // namespace hs00
+} // namespace Schemas
+} // namespace FileWriter

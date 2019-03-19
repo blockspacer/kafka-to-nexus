@@ -10,7 +10,6 @@
 #include "../../HDFWriterModule.h"
 #include "../../Msg.h"
 #include "NeXusDataset.h"
-#include "schemas/senv_data_generated.h"
 
 namespace senv {
 using FlatbufferMessage = FileWriter::FlatbufferMessage;
@@ -34,24 +33,20 @@ std::vector<std::uint64_t> GenerateTimeStamps(std::uint64_t OriginTimeStamp,
 class FastSampleEnvironmentWriter : public FileWriterBase {
 public:
   FastSampleEnvironmentWriter() = default;
-  ~FastSampleEnvironmentWriter() = default;
+  ~FastSampleEnvironmentWriter() override = default;
 
-  void parse_config(std::string const &ConfigurationStream,
-                    std::string const &ConfigurationModule) override;
+  void parse_config(std::string const &, std::string const &) override;
 
   InitResult init_hdf(hdf5::node::Group &HDFGroup,
                       std::string const &HDFAttributes) override;
 
   InitResult reopen(hdf5::node::Group &HDFGroup) override;
 
-  WriteResult write(FlatbufferMessage const &Message) override;
+  void write(FlatbufferMessage const &Message) override;
 
   int32_t flush() override;
 
   int32_t close() override;
-
-  void enable_cq(CollectiveQueue *cq, HDFIDStore *hdf_store,
-                 int mpi_rank) override;
 
 protected:
   NeXusDataset::RawValue Value;

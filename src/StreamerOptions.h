@@ -8,7 +8,7 @@ namespace FileWriter {
 
 /// Contains configuration parameters for the Streamer
 struct StreamerOptions {
-  KafkaW::BrokerSettings Settings;
+  KafkaW::BrokerSettings BrokerSettings;
   std::chrono::milliseconds StartTimestamp{0};
   std::chrono::milliseconds StopTimestamp{0};
   std::chrono::milliseconds BeforeStartTime{1000};

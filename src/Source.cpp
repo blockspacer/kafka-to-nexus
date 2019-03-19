@@ -1,4 +1,5 @@
 #include "Source.h"
+#include "HDFWriterModule.h"
 #include "helper.h"
 #include "logger.h"
 #include <chrono>
@@ -7,25 +8,13 @@
 
 namespace FileWriter {
 
-Source::Source(std::string const &Name, std::string const &ID,
-               HDFWriterModule::ptr Writer)
-    : SourceName(Name), SchemaID(ID), WriterModule(std::move(Writer)) {}
+Source::Source(std::string Name, std::string ID, HDFWriterModule::ptr Writer)
+    : SourceName(std::move(Name)), SchemaID(std::move(ID)),
+      WriterModule(std::move(Writer)) {}
 
 Source::~Source() { close_writer_module(); }
 
-Source::Source(Source &&x) noexcept { swap(*this, x); }
-
-void swap(Source &x, Source &y) {
-  std::swap(x.Topic_, y.Topic_);
-  std::swap(x.SourceName, y.SourceName);
-  std::swap(x.SchemaID, y.SchemaID);
-  std::swap(x.WriterModule, y.WriterModule);
-  std::swap(x._processed_messages_count, y._processed_messages_count);
-  std::swap(x._cnt_msg_written, y._cnt_msg_written);
-  std::swap(x.is_parallel, y.is_parallel);
-}
-
-std::string const &Source::topic() const { return Topic_; }
+std::string const &Source::topic() const { return TopicName; }
 
 std::string const &Source::sourcename() const { return SourceName; }
 
@@ -41,19 +30,18 @@ ProcessMessageResult Source::process_message(FlatbufferMessage const &Message) {
       LOG(Sev::Debug, "!_hdf_writer_module for {}", SourceName);
       return ProcessMessageResult::ERR;
     }
-    auto ret = WriterModule->write(Message);
-    _cnt_msg_written += 1;
-    _processed_messages_count += 1;
-    if (ret.is_ERR()) {
-      if (log_level >= static_cast<int>(Sev::Debug)) {
-        LOG(Sev::Debug, "Failure while writing message: {}", ret.to_str());
+    try {
+      WriterModule->write(Message);
+      _cnt_msg_written += 1;
+      _processed_messages_count += 1;
+      if (HDFFileForSWMR != nullptr) {
+        HDFFileForSWMR->SWMRFlush();
       }
+      return ProcessMessageResult::OK;
+    } catch (const HDFWriterModuleRegistry::WriterException &E) {
+      LOG(Sev::Error, "Failure while writing message: {}", E.what());
       return ProcessMessageResult::ERR;
     }
-    if (HDFFileForSWMR) {
-      HDFFileForSWMR->SWMRFlush();
-    }
-    return ProcessMessageResult::OK;
   }
   return ProcessMessageResult::ERR;
 }
@@ -70,6 +58,6 @@ void Source::close_writer_module() {
   }
 }
 
-void Source::setTopic(std::string const &Name) { Topic_ = Name; }
+void Source::setTopic(std::string const &Name) { TopicName = Name; }
 
 } // namespace FileWriter

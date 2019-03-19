@@ -1,9 +1,9 @@
 #pragma once
 
 #include "CommandListener.h"
-#include "KafkaW/KafkaW.h"
+#include "KafkaW/ProducerTopic.h"
 #include "MainOpt.h"
-#include "MasterI.h"
+#include "MasterInterface.h"
 #include "StreamMaster.h"
 #include "Streamer.h"
 #include <atomic>
@@ -18,9 +18,9 @@ namespace FileWriter {
 ///
 /// On a new file writing request, creates new nexusWriter instance.
 /// Reacts also to stop, and possibly other future commands.
-class Master : public MasterI {
+class Master : public MasterInterface {
 public:
-  Master(MainOpt &config);
+  explicit Master(MainOpt &Config);
 
   /// \brief Sets up command listener and handles any commands received.
   ///
@@ -29,33 +29,31 @@ public:
 
   /// Stop running.
   void stop() override;
-  void handle_command_message(std::unique_ptr<KafkaW::Msg> &&msg) override;
-  void handle_command(std::string const &command) override;
+  void handle_command_message(std::unique_ptr<Msg> CommandMessage) override;
+  void handle_command(std::string const &Command) override;
   void statistics() override;
   void addStreamMaster(
       std::unique_ptr<StreamMaster<Streamer>> StreamMaster) override;
   void stopStreamMasters() override;
   std::unique_ptr<StreamMaster<Streamer>> &
-  getStreamMasterForJobID(std::string JobID) override;
+  getStreamMasterForJobID(std::string const &JobID) override;
   MainOpt &getMainOpt() override;
   std::shared_ptr<KafkaW::ProducerTopic> getStatusProducer() override;
 
   /// \brief The unique identifier for this file writer on the network.
   ///
   /// \return The unique id.
-  std::string file_writer_process_id() const override;
+  std::string getFileWriterProcessId() const override;
 
-  bool RunLoopExited() override { return HasExitedRunLoop; };
-  // std::function<void(void)> cb_on_filewriter_new;
-  std::shared_ptr<KafkaW::ProducerTopic> status_producer;
+  bool runLoopExited() override { return HasExitedRunLoop; };
+  std::shared_ptr<KafkaW::ProducerTopic> StatusProducer;
 
 private:
-  CommandListener command_listener;
-  std::atomic<bool> do_run{true};
+  CommandListener Listener;
+  std::atomic<bool> Running{true};
   std::atomic<bool> HasExitedRunLoop{false};
   std::vector<std::unique_ptr<StreamMaster<Streamer>>> StreamMasters;
-  std::string file_writer_process_id_;
-  MainOpt &MainOpt_;
+  std::string FileWriterProcessId;
+  MainOpt &MainConfig;
 };
-
 } // namespace FileWriter

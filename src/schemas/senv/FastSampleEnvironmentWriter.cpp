@@ -7,6 +7,7 @@
 
 #include "FastSampleEnvironmentWriter.h"
 #include "HDFFile.h"
+#include "senv_data_generated.h"
 #include <iostream>
 #include <limits>
 
@@ -24,8 +25,8 @@ static FileWriter::HDFWriterModuleRegistry::Registrar<
 
 bool SampleEnvironmentDataGuard::verify(
     FlatbufferMessage const &Message) const {
-  auto Verifier =
-      flatbuffers::Verifier((uint8_t *)Message.data(), Message.size());
+  auto Verifier = flatbuffers::Verifier(
+      reinterpret_cast<const std::uint8_t *>(Message.data()), Message.size());
   return VerifySampleEnvironmentDataBuffer(Verifier);
 }
 
@@ -43,9 +44,8 @@ std::string SampleEnvironmentDataGuard::source_name(
   return FbPointer->Name()->str();
 }
 
-void FastSampleEnvironmentWriter::parse_config(
-    std::string const &ConfigurationStream,
-    std::string const &ConfigurationModule) {
+void FastSampleEnvironmentWriter::parse_config(std::string const &,
+                                               std::string const &) {
   LOG(Sev::Debug, "There are currently no runtime configurable options in the "
                   "FastSampleEnvironmentWriter class.");
 }
@@ -56,14 +56,22 @@ FastSampleEnvironmentWriter::init_hdf(hdf5::node::Group &HDFGroup,
   const int DefaultChunkSize = 1024;
   try {
     auto &CurrentGroup = HDFGroup;
-    NeXusDataset::RawValue(CurrentGroup, NeXusDataset::Mode::Create,
-                           DefaultChunkSize);
-    NeXusDataset::Time(CurrentGroup, NeXusDataset::Mode::Create,
-                       DefaultChunkSize);
-    NeXusDataset::CueIndex(CurrentGroup, NeXusDataset::Mode::Create,
-                           DefaultChunkSize);
-    NeXusDataset::CueTimestampZero(CurrentGroup, NeXusDataset::Mode::Create,
-                                   DefaultChunkSize);
+    NeXusDataset::RawValue(         // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
+    NeXusDataset::Time(             // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
+    NeXusDataset::CueIndex(         // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
+    NeXusDataset::CueTimestampZero( // NOLINT(bugprone-unused-raii)
+        CurrentGroup,               // NOLINT(bugprone-unused-raii)
+        NeXusDataset::Mode::Create, // NOLINT(bugprone-unused-raii)
+        DefaultChunkSize);          // NOLINT(bugprone-unused-raii)
     auto ClassAttribute =
         CurrentGroup.attributes.create<std::string>("NX_class");
     ClassAttribute.write("NXlog");
@@ -73,9 +81,9 @@ FastSampleEnvironmentWriter::init_hdf(hdf5::node::Group &HDFGroup,
     LOG(Sev::Error, "Unable to initialise fast sample environment data tree in "
                     "HDF file with error message: \"{}\"",
         E.what());
-    return HDFWriterModule::InitResult::ERROR_IO();
+    return HDFWriterModule::InitResult::ERROR;
   }
-  return FileWriterBase::InitResult::OK();
+  return FileWriterBase::InitResult::OK;
 }
 
 FileWriterBase::InitResult
@@ -92,9 +100,9 @@ FastSampleEnvironmentWriter::reopen(hdf5::node::Group &HDFGroup) {
     LOG(Sev::Error,
         "Failed to reopen datasets in HDF file with error message: \"{}\"",
         std::string(E.what()));
-    return HDFWriterModule::InitResult::ERROR_IO();
+    return HDFWriterModule::InitResult::ERROR;
   }
-  return FileWriterBase::InitResult::OK();
+  return FileWriterBase::InitResult::OK;
 }
 
 std::vector<std::uint64_t> GenerateTimeStamps(std::uint64_t OriginTimeStamp,
@@ -107,7 +115,7 @@ std::vector<std::uint64_t> GenerateTimeStamps(std::uint64_t OriginTimeStamp,
   return ReturnVector;
 }
 
-FileWriterBase::WriteResult FastSampleEnvironmentWriter::write(
+void FastSampleEnvironmentWriter::write(
     const FileWriter::FlatbufferMessage &Message) {
   auto FbPointer = GetSampleEnvironmentData(Message.data());
   auto TempDataPtr = FbPointer->Values()->data();
@@ -115,7 +123,7 @@ FileWriterBase::WriteResult FastSampleEnvironmentWriter::write(
   if (TempDataSize == 0) {
     LOG(Sev::Warning,
         "Received a flatbuffer with zero (0) data elements in it.");
-    return FileWriterBase::WriteResult::OK();
+    return;
   }
   ArrayAdapter<const std::uint16_t> CArray(TempDataPtr, TempDataSize);
   auto CueIndexValue = Value.dataspace().size();
@@ -135,17 +143,10 @@ FileWriterBase::WriteResult FastSampleEnvironmentWriter::write(
         FbPointer->PacketTimestamp(), FbPointer->TimeDelta(), TempDataSize));
     Timestamp.appendArray(TempTimeStamps);
   }
-  return FileWriterBase::WriteResult::OK();
 }
 
 std::int32_t FastSampleEnvironmentWriter::flush() { return 0; }
 
 std::int32_t FastSampleEnvironmentWriter::close() { return 0; }
-
-void FastSampleEnvironmentWriter::enable_cq(CollectiveQueue *cq,
-                                            HDFIDStore *hdf_store,
-                                            int mpi_rank) {
-  LOG(Sev::Error, "Collective queue not implemented.");
-}
 
 } // namespace senv

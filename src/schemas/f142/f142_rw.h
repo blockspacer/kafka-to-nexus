@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <vector>
 
 namespace FileWriter {
@@ -56,7 +57,7 @@ public:
                       CreateWriterTypedBaseMethod CreateMethod);
 
   /// Write an incoming message which should contain a flatbuffer.
-  WriteResult write(FlatbufferMessage const &Message) override;
+  void write(FlatbufferMessage const &Message) override;
 
   /// Flush underlying buffers.
   int32_t flush() override;
@@ -101,17 +102,16 @@ public:
   size_t ArraySize = 0;
   std::string StoreLatestInto;
 
-  // Helper for experiments on my other branch
-  void enable_cq(CollectiveQueue *cq, HDFIDStore *hdf_store,
-                 int mpi_rank) override;
-  CollectiveQueue *cq = nullptr;
-
   // Reduce LOG rate in some cases
   using CLOCK = std::chrono::steady_clock;
   using MS = std::chrono::milliseconds;
   MS ErrorLogMinInterval{500};
   std::chrono::time_point<CLOCK> TimestampLastErrorLog{CLOCK::now() -
                                                        ErrorLogMinInterval};
+
+private:
+  static bool findType(const nlohmann::basic_json<> Attribute,
+                       std::string &DType);
 };
 
 /// \brief  Interface for creating and opening a dataset.
@@ -124,11 +124,7 @@ struct WriterFactory {
   virtual std::unique_ptr<WriterTypedBase>
   createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
                FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq) = 0;
-  virtual std::unique_ptr<WriterTypedBase>
-  createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
-               FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq, HDFIDStore *HDFStore) = 0;
+               Mode OpenMode) = 0;
   virtual FileWriter::Schemas::f142::Value getValueUnionID() = 0;
 };
 
@@ -141,18 +137,10 @@ struct WriterFactoryScalar : public WriterFactory {
   std::unique_ptr<WriterTypedBase>
   createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
                FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq) override {
+               Mode OpenMode) override {
     return std::unique_ptr<WriterTypedBase>(
-        new WriterScalar<C_TYPE, FB_VALUE_TYPE>(Group, Name, ValueUnionID, cq));
-  }
-
-  std::unique_ptr<WriterTypedBase>
-  createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
-               FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq, HDFIDStore *HDFStore) override {
-    return std::unique_ptr<WriterTypedBase>(
-        new WriterScalar<C_TYPE, FB_VALUE_TYPE>(Group, Name, ValueUnionID, cq,
-                                                HDFStore));
+        new WriterScalar<C_TYPE, FB_VALUE_TYPE>(Group, Name, ValueUnionID,
+                                                OpenMode));
   }
 
   FileWriter::Schemas::f142::Value getValueUnionID() override {
@@ -169,19 +157,10 @@ struct WriterFactoryArray : public WriterFactory {
   std::unique_ptr<WriterTypedBase>
   createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
                FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq) override {
+               Mode OpenMode) override {
     return std::unique_ptr<WriterTypedBase>(
         new WriterArray<C_TYPE, FB_VALUE_TYPE>(Group, Name, Columns,
-                                               ValueUnionID, cq));
-  }
-
-  std::unique_ptr<WriterTypedBase>
-  createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
-               FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq, HDFIDStore *HDFStore) override {
-    return std::unique_ptr<WriterTypedBase>(
-        new WriterArray<C_TYPE, FB_VALUE_TYPE>(Group, Name, Columns,
-                                               ValueUnionID, cq, HDFStore));
+                                               ValueUnionID, OpenMode));
   }
 
   FileWriter::Schemas::f142::Value getValueUnionID() override {
@@ -197,17 +176,9 @@ struct WriterFactoryScalarString : public WriterFactory {
   std::unique_ptr<WriterTypedBase>
   createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
                FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq) override {
+               Mode OpenMode) override {
     return std::unique_ptr<WriterTypedBase>(
-        new WriterScalarString(Group, Name, ValueUnionID, cq));
-  }
-
-  std::unique_ptr<WriterTypedBase>
-  createWriter(hdf5::node::Group Group, std::string Name, size_t Columns,
-               FileWriter::Schemas::f142::Value ValueUnionID,
-               CollectiveQueue *cq, HDFIDStore *HDFStore) override {
-    return std::unique_ptr<WriterTypedBase>(
-        new WriterScalarString(Group, Name, ValueUnionID, cq, HDFStore));
+        new WriterScalarString(Group, Name, Mode::Create));
   }
 
   FileWriter::Schemas::f142::Value getValueUnionID() override {

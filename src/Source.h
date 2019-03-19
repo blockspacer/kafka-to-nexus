@@ -16,9 +16,8 @@ namespace FileWriter {
 /// which are exclusively used for only one sourcename.
 class Source final {
 public:
-  Source(std::string const &Name, std::string const &ID,
-         HDFWriterModule::ptr Writer);
-  Source(Source &&) noexcept;
+  Source(std::string Name, std::string ID, HDFWriterModule::ptr Writer);
+  Source(Source &&) = default;
   ~Source();
   std::string const &topic() const;
   std::string const &sourcename() const;
@@ -29,13 +28,12 @@ public:
   void setTopic(std::string const &Name);
 
 private:
-  std::string Topic_;
+  std::string TopicName;
   std::string SourceName;
   std::string SchemaID;
   std::unique_ptr<HDFWriterModule> WriterModule;
   uint64_t _processed_messages_count = 0;
   uint64_t _cnt_msg_written = 0;
-  friend void swap(Source &x, Source &y);
 };
 
 } // namespace FileWriter

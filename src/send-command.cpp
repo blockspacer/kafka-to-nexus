@@ -1,8 +1,8 @@
 #include "CLIOptions.h"
-#include "KafkaW/KafkaW.h"
+#include "KafkaW/ProducerTopic.h"
+#include "URI.h"
 #include "helper.h"
 #include "json.h"
-#include "uri.h"
 #include <CLI/CLI.hpp>
 #include <cstdio>
 #include <cstdlib>
@@ -65,7 +65,7 @@ std::string make_command_from_file(const std::string &filename) {
     return "";
   }
   LOG(Sev::Debug, "make_command_from_file {}", filename);
-  auto buf1 = gulp(filename);
+  auto buf1 = readFileIntoVector(filename);
   return {buf1.data(), buf1.size()};
 }
 
@@ -99,21 +99,21 @@ int main(int argc, char **argv) {
             false);
   CLI11_PARSE(App, argc, argv);
 
-  opt.BrokerSettings.Address = opt.broker.host_port;
+  opt.BrokerSettings.Address = opt.broker.HostPort;
   auto producer = std::make_shared<KafkaW::Producer>(opt.BrokerSettings);
-  KafkaW::Producer::Topic pt(producer, opt.broker.topic);
+  KafkaW::ProducerTopic pt(producer, opt.broker.Topic);
   if (opt.cmd == "new") {
     auto m1 = make_command(opt.BrokerSettings.Address, opt.teamid);
     LOG(Sev::Debug, "sending {}", m1);
-    pt.produce((uint8_t *)m1.data(), m1.size(), true);
+    pt.produce((uint8_t *)m1.data(), m1.size());
   } else if (opt.cmd == "exit") {
     auto m1 = make_command_exit(opt.BrokerSettings.Address, opt.teamid);
     LOG(Sev::Debug, "sending {}", m1);
-    pt.produce((uint8_t *)m1.data(), m1.size(), true);
+    pt.produce((uint8_t *)m1.data(), m1.size());
   } else if (opt.cmd.substr(0, 5) == "file:") {
     auto m1 = make_command_from_file(opt.cmd.substr(5));
     LOG(Sev::Debug, "sending:\n{}", m1);
-    pt.produce((uint8_t *)m1.data(), m1.size(), true);
+    pt.produce((uint8_t *)m1.data(), m1.size());
   } else if (opt.cmd.substr(0, 5) == "stop:") {
     auto input = opt.cmd.substr(5);
     std::chrono::milliseconds stop_time{0};
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
       m1 = make_command_stop(opt.BrokerSettings.Address, input);
     }
     LOG(Sev::Debug, "sending {}", m1);
-    pt.produce((uint8_t *)m1.data(), m1.size(), true);
+    pt.produce((uint8_t *)m1.data(), m1.size());
   }
   return 0;
 }

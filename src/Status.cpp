@@ -3,60 +3,46 @@
 #include "Status.h"
 #include "logger.h"
 
-/// \brief Return the average given the sum of the elements and their number
-/// \param sum the sum of the elements
-/// \param N number of elements
-double average(const double &Sum, const double &N) { return Sum / N; }
+/// \brief Returns the average.
+///
+/// \param sum The sum of the elements.
+/// \param N Number of elements.
+/// \return The average.
+double average(double Sum, uint64_t N) { return Sum / N; }
 
 /// Return the unbiased standard deviation computed as \f$\sigma =
 /// \sqrt{\frac{\langle x^2 \rangle - \langle x \rangle^2}{N(N-1)}}\f$
-double standardDeviation(const double &Sum, const double &SumSquared,
-                         const double &N) {
-  double Variance = (SumSquared - (Sum * Sum) / N) / (N - 1);
-  if (Variance > 0) { // can be caused by numerical instabilities
-    return std::sqrt(Variance);
-  } else {
+double standardDeviation(double Sum, double SumSquared, uint64_t N) {
+  // Avoid divide-by-zero error due to too few messages.
+  if (N <= 1) {
     return 0.0;
   }
+
+  double Variance = (SumSquared - (Sum * Sum) / N) / (N - 1);
+  if (Variance > 0) {
+    return std::sqrt(Variance);
+  }
+  return 0.0;
 }
 
 std::pair<double, double>
-FileWriter::Status::messageSize(const FileWriter::Status::MessageInfo &Value) {
-  if (Value.getMessages().first == 0) { // nan causes failure in JSON
+FileWriter::Status::MessageInfo::messageSizeStats() const {
+  // Nan causes failure in JSON
+  if (Mbytes == 0) {
     return std::pair<double, double>{};
   }
   std::pair<double, double> result(
-      average(Value.getMbytes().first, Value.getMessages().first),
-      standardDeviation(Value.getMbytes().first, Value.getMbytes().second,
-                        Value.getMessages().first));
+      average(Mbytes, Messages),
+      standardDeviation(Mbytes, MbytesSquare, Messages));
   return result;
 }
 
-double FileWriter::Status::messageFrequency(
-    const FileWriter::Status::MessageInfo &Value,
-    const std::chrono::milliseconds &TimeDifference) {
-  if (TimeDifference.count() < 1e-10) {
-    return 0.0;
-  }
-  return 1e3 * average(Value.getMessages().first, TimeDifference.count());
-}
-
-double FileWriter::Status::messageThroughput(
-    const FileWriter::Status::MessageInfo &Value,
-    const std::chrono::milliseconds &TimeDifference) {
-  if (TimeDifference.count() < 1e-10) {
-    return 0.0;
-  }
-  return 1e3 * average(Value.getMbytes().first, TimeDifference.count());
-}
-
-void FileWriter::Status::MessageInfo::newMessage(const double &MessageSize) {
+void FileWriter::Status::MessageInfo::newMessage(double MessageBytes) {
   std::lock_guard<std::mutex> Lock(Mutex);
-  double Size = MessageSize * 1e-6;
+  double Size = MessageBytes * 1e-6;
   Mbytes += Size;
   MbytesSquare += Size * Size;
   Messages++;
-  MessagesSquare++;
 }
 
 void FileWriter::Status::MessageInfo::error() {
@@ -64,35 +50,26 @@ void FileWriter::Status::MessageInfo::error() {
   Errors++;
 }
 
-void FileWriter::Status::MessageInfo::reset() {
+void FileWriter::Status::MessageInfo::resetStatistics() {
   Mbytes = MbytesSquare = 0.0;
-  Messages = MessagesSquare = 0.0;
-  Errors = 0.0;
+  Messages = 0;
+  Errors = 0;
 }
 
-std::pair<double, double> FileWriter::Status::MessageInfo::getMbytes() const {
-  return std::pair<double, double>{Mbytes, MbytesSquare};
+double FileWriter::Status::MessageInfo::getMbytes() const { return Mbytes; }
+
+uint64_t FileWriter::Status::MessageInfo::getNumberMessages() const {
+  return Messages;
 }
 
-std::pair<double, double> FileWriter::Status::MessageInfo::getMessages() const {
-  return std::pair<double, double>{Messages, MessagesSquare};
-}
-
-double FileWriter::Status::MessageInfo::getErrors() const { return Errors; }
-
-std::pair<double, double> &operator+=(std::pair<double, double> &First,
-                                      const std::pair<double, double> &Second) {
-  First.first += Second.first;
-  First.second += Second.second;
-  return First;
-}
+uint64_t FileWriter::Status::MessageInfo::getErrors() const { return Errors; }
 
 void FileWriter::Status::StreamMasterInfo::add(
     FileWriter::Status::MessageInfo &Info) {
   Mbytes += Info.getMbytes();
-  Messages += Info.getMessages();
+  Messages += Info.getNumberMessages();
   Errors += Info.getErrors();
-  Info.reset();
+  Info.resetStatistics();
 }
 
 void FileWriter::Status::StreamMasterInfo::setTimeToNextMessage(
@@ -100,26 +77,24 @@ void FileWriter::Status::StreamMasterInfo::setTimeToNextMessage(
   MillisecondsToNextMessage = ToNextMessage;
 }
 const std::chrono::milliseconds
-FileWriter::Status::StreamMasterInfo::getTimeToNextMessage() {
+FileWriter::Status::StreamMasterInfo::getTimeToNextMessage() const {
   return MillisecondsToNextMessage;
 }
 const std::chrono::milliseconds
-FileWriter::Status::StreamMasterInfo::runTime() {
+FileWriter::Status::StreamMasterInfo::runTime() const {
   auto result = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now() - StartTime);
   return result;
 }
 
-std::pair<double, double>
-FileWriter::Status::StreamMasterInfo::getMbytes() const {
+double FileWriter::Status::StreamMasterInfo::getMbytes() const {
   return Mbytes;
 }
 
-std::pair<double, double>
-FileWriter::Status::StreamMasterInfo::getMessages() const {
+uint64_t FileWriter::Status::StreamMasterInfo::getMessages() const {
   return Messages;
 }
 
-double FileWriter::Status::StreamMasterInfo::getErrors() const {
+uint64_t FileWriter::Status::StreamMasterInfo::getErrors() const {
   return Errors;
 }

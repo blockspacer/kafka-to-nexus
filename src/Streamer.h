@@ -6,17 +6,15 @@
 
 #include "DemuxTopic.h"
 #include "EventLogger.h"
+#include "KafkaW/Consumer.h"
 #include "Status.h"
 #include "StreamerOptions.h"
 #include "logger.h"
-
-#include "KafkaW/KafkaW.h"
-
 #include <chrono>
 #include <future>
 
 namespace FileWriter {
-using ConsumerPtr = std::unique_ptr<KafkaW::Consumer>;
+using ConsumerPtr = std::unique_ptr<KafkaW::ConsumerInterface>;
 
 /// \brief Connect to kafka topics eventually at a given point in time
 /// and consume messages.
@@ -37,7 +35,7 @@ public:
   ///
   /// \throws     std::runtime_error if failed.
   Streamer(const std::string &Broker, const std::string &TopicName,
-           const FileWriter::StreamerOptions &Opts);
+           FileWriter::StreamerOptions Opts);
   Streamer(const Streamer &) = delete;
   Streamer(Streamer &&other) = default;
 
@@ -59,7 +57,7 @@ public:
   /// not older than the stop time.
   ///
   /// \return The number of sources.
-  const size_t numSources() { return Sources.size(); }
+  const size_t numSources() const { return Sources.size(); }
   void setSources(std::unordered_map<std::string, Source> &SourceList);
 
   /// \brief Removes the source from the sources list.
@@ -86,7 +84,7 @@ public:
   StreamerOptions &getOptions() { return Options; }
 
 protected:
-  ConsumerPtr Consumer;
+  ConsumerPtr Consumer{nullptr};
   KafkaW::BrokerSettings Settings;
 
   StreamerStatus RunStatus{StreamerStatus::NOT_INITIALIZED};
@@ -96,6 +94,10 @@ protected:
   StreamerOptions Options;
 
   std::future<std::pair<Status::StreamerStatus, ConsumerPtr>> ConsumerCreated;
+
+private:
+  bool ifConsumerIsReadyThenAssignIt();
+  bool stopTimeExceeded(FileWriter::DemuxTopic &MessageProcessor);
 };
 
 /// \brief Create a consumer with options specified in the class
@@ -107,7 +109,7 @@ protected:
 /// consumer can't be created returns ``SEC::configuration_error``, if the topic
 /// is not in the partition ``SEC::topic_partition_error``;
 std::pair<Status::StreamerStatus, ConsumerPtr>
-createConsumer(std::string const TopicName, StreamerOptions const Options);
+createConsumer(std::string const &TopicName, StreamerOptions const &Options);
 bool stopTimeElapsed(std::uint64_t MessageTimestamp,
                      std::chrono::milliseconds Stoptime);
 } // namespace FileWriter
