@@ -151,8 +151,8 @@ void Master::statistics() {
     auto FilewriterTaskStatus = StreamMaster->getFileWriterTask().stats();
     Status["files"][FilewriterTaskID] = FilewriterTaskStatus;
   }
-  auto Buffer = Status.dump();
-  StatusProducer->produce((unsigned char *)Buffer.data(), Buffer.size());
+  std::string Buffer = Status.dump();
+  StatusProducer->produce(Buffer);
 }
 
 void Master::stop() { Running = false; }
