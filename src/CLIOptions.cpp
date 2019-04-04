@@ -15,11 +15,15 @@ CLI::Option *uriOption(CLI::App &App, const std::string &Name, uri::URI &URIArg,
   return Opt;
 }
 
-CLI::Option *addOption(CLI::App &App, std::string const &Name, uri::URI &URIArg,
-                       std::string const &Description = "",
-                       bool Defaulted = false) {
+CLI::Option *addUriOption(CLI::App &App, std::string const &Name,
+                          uri::URI &URIArg, std::string const &Description = "",
+                          bool Defaulted = false) {
   CLI::callback_t Fun = [&URIArg](CLI::results_t Results) {
-    URIArg.parse(Results[0]);
+    try {
+      URIArg.parse(Results[0]);
+    } catch (std::runtime_error &E) {
+      return false;
+    }
     return true;
   };
 
@@ -37,13 +41,17 @@ CLI::Option *addOption(CLI::App &App, std::string const &Name, uri::URI &URIArg,
 /// \param Description
 /// \param Defaulted
 /// \return
-CLI::Option *addOption(CLI::App &App, const std::string &Name, uri::URI &URIArg,
-                       bool &TrueIfOptionGiven,
-                       const std::string &Description = "",
-                       bool Defaulted = false) {
+CLI::Option *addUriOption(CLI::App &App, const std::string &Name,
+                          uri::URI &URIArg, bool &TrueIfOptionGiven,
+                          const std::string &Description = "",
+                          bool Defaulted = false) {
   CLI::callback_t Fun = [&URIArg, &TrueIfOptionGiven](CLI::results_t Results) {
     TrueIfOptionGiven = true;
-    URIArg.parse(Results[0]);
+    try {
+      URIArg.parse(Results[0]);
+    } catch (std::runtime_error &E) {
+      return false;
+    }
     return true;
   };
 
@@ -83,27 +91,63 @@ CLI::Option *addKafkaOption(CLI::App &App, std::string const &Name,
   return SetKeyValueOptions(App, Name, Description, Defaulted, Fun);
 }
 
+bool parseLogLevel(std::vector<std::string> LogLevelString,
+                   spdlog::level::level_enum &LogLevelResult) {
+  std::map<std::string, spdlog::level::level_enum> LevelMap{
+      {"Critical", spdlog::level::critical}, {"Error", spdlog::level::err},
+      {"Warning", spdlog::level::warn},      {"Info", spdlog::level::info},
+      {"Debug", spdlog::level::debug},       {"Trace", spdlog::level::trace}};
+
+  if (LogLevelString.size() != 1) {
+    return false;
+  }
+  try {
+    LogLevelResult = LevelMap.at(LogLevelString.at(0));
+    return true;
+  } catch (std::out_of_range &e) {
+    // Do nothing
+  }
+  try {
+    int TempLogMessageLevel = std::stoi(LogLevelString.at(0));
+    if (TempLogMessageLevel < 0 or TempLogMessageLevel > 5) {
+      return false;
+    }
+    LogLevelResult = spdlog::level::level_enum(TempLogMessageLevel);
+  } catch (std::invalid_argument &e) {
+    return false;
+  }
+
+  return true;
+}
+
 void setCLIOptions(CLI::App &App, MainOpt &MainOptions) {
   // and add option for json config file instead
   App.add_option("--commands-json", MainOptions.CommandsJsonFilename,
                  "Specify a json file to set config")
       ->check(CLI::ExistingFile);
 
-  addOption(App, "--command-uri", MainOptions.CommandBrokerURI,
-            "<//host[:port][/topic]> Kafka broker/topic to listen for commands")
+  addUriOption(
+      App, "--command-uri", MainOptions.CommandBrokerURI,
+      "<host[:port][/topic]> Kafka broker/topic to listen for commands")
       ->required();
-  addOption(App, "--status-uri", MainOptions.KafkaStatusURI,
-            MainOptions.ReportStatus,
-            "<//host[:port][/topic]> Kafka broker/topic to publish status "
-            "updates on");
-  App.add_option("--kafka-gelf", MainOptions.kafka_gelf,
-                 "<//host[:port]/topic> Log to Graylog via Kafka GELF adapter");
-  App.add_option("--graylog-logger-address", MainOptions.GraylogLoggerAddress,
-                 "<host:port> Log to Graylog via graylog_logger library");
+  addUriOption(App, "--status-uri", MainOptions.KafkaStatusURI,
+               MainOptions.ReportStatus,
+               "<host[:port][/topic]> Kafka broker/topic to publish status "
+               "updates on");
+  addUriOption(App, "--graylog-logger-address",
+               MainOptions.GraylogLoggerAddress,
+               "<host:port> Log to Graylog via graylog_logger library");
+  std::string LogLevelInfoStr =
+      R"*(Set log message level. Set to 0 - 5 or one of
+  `Trace`, `Debug`, `Info`, `Warning`, `Error`
+  or `Critical`. Ex: "-v Debug". Default: `Error`)*";
   App.add_option(
-         "-v,--verbosity", log_level,
-         "Set logging level. 3 == Error, 7 == Debug. Default: 3 (Error)", true)
-      ->check(CLI::Range(1, 7));
+         "-v,--verbosity",
+         [&MainOptions, LogLevelInfoStr](std::vector<std::string> Input) {
+           return parseLogLevel(Input, MainOptions.LoggingLevel);
+         },
+         LogLevelInfoStr)
+      ->set_default_val("Error");
   App.add_option("--hdf-output-prefix", MainOptions.HDFOutputPrefix,
                  "<absolute/or/relative/directory> Directory which gets "
                  "prepended to the HDF output filenames in the file write "

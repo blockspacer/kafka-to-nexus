@@ -14,7 +14,8 @@ using std::string;
 CommandListener::CommandListener(MainOpt &config) : config(config) {}
 
 void CommandListener::start() {
-  KafkaW::BrokerSettings BrokerSettings;
+  KafkaW::BrokerSettings BrokerSettings =
+      config.StreamerConfiguration.BrokerSettings;
   BrokerSettings.PollTimeoutMS = 500;
   BrokerSettings.Address = config.CommandBrokerURI.HostPort;
   BrokerSettings.KafkaConfiguration["group.id"] = fmt::format(
@@ -27,7 +28,7 @@ void CommandListener::start() {
   if (consumer->topicPresent(config.CommandBrokerURI.Topic))
     consumer->addTopic(config.CommandBrokerURI.Topic);
   else {
-    LOG(Sev::Error,
+    Logger->error(
         "Topic {} not in broker. Could not start listener for topic {}.",
         config.CommandBrokerURI.Topic, config.CommandBrokerURI.Topic);
     throw std::runtime_error(fmt::format(
