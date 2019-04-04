@@ -32,16 +32,6 @@ builders = pipeline_builder.createBuilders { container ->
 
   pipeline_builder.stage("${container.key}: Dependencies") {
     def conan_remote = "ess-dmsc-local"
-    if (container.key == no_graylog) {
-      container.sh """
-        mkdir build
-          cd build
-          conan remote add \
-            --insert 0 \
-            ${conan_remote} ${local_conan_server}
-          conan install --build=outdated ../${pipeline_builder.project}/conan/conanfile_no_graylog.txt
-        """
-    } else {
     container.sh """
       mkdir build
       cd build
@@ -50,7 +40,6 @@ builders = pipeline_builder.createBuilders { container ->
         ${conan_remote} ${local_conan_server}
       conan install --build=outdated ../${pipeline_builder.project}/conan/conanfile.txt
     """
-    }
   }  // stage
 
   pipeline_builder.stage("${container.key}: Configure") {
