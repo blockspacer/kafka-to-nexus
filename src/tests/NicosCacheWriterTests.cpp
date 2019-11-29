@@ -10,6 +10,7 @@
 #include <flatbuffers/flatbuffers.h>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
 
 #include "../json.h"
@@ -107,6 +108,98 @@ TEST_F(NicosCacheReaderTest, ReaderReturnValues) {
   EXPECT_EQ(Message.getSourceName(), std::string("nicos/device/parameter"));
   EXPECT_EQ(Message.getTimestamp(), 123.456 * 1e9);
 }
+
+TEST_F(NicosCacheReaderTest, TtlZeroDoesntTrow) {
+
+  nlohmann::json BufferJson = R"({
+    "key": "nicos/device/parameter",
+    "writer_module": "ns10",
+    "time": 123.456,
+    "value": "2e1024",
+    "ttl" : 0.0
+  })"_json;
+
+  auto Builder = createFlatbufferMessageFromJson(BufferJson);
+  auto Message = FileWriter::FlatbufferMessage(
+      reinterpret_cast<char *>(Builder->GetBufferPointer()),
+      Builder->GetSize());
+  EXPECT_TRUE(Message.isValid());
+}
+
+TEST_F(NicosCacheReaderTest, ExpiredTrueDoesntTrow) {
+
+  nlohmann::json BufferJson = R"({
+    "key": "nicos/device/parameter",
+    "writer_module": "ns10",
+    "time": 123.456,
+    "value": "2e1024",
+    "expired" : 1
+  })"_json;
+
+  auto Builder = createFlatbufferMessageFromJson(BufferJson);
+  auto Message = FileWriter::FlatbufferMessage(
+      reinterpret_cast<char *>(Builder->GetBufferPointer()),
+      Builder->GetSize());
+  EXPECT_TRUE(Message.isValid());
+}
+
+TEST_F(NicosCacheReaderTest, VerifyV20CacheEntry) {
+  int i = 0;
+  while (true) {
+    std::string FileName =
+        std::string("/CacheEntry/V20CacheEntry.") + std::to_string(i);
+    std::cout << std::string(TEST_DATA_PATH) + FileName << "\n";
+    std::ifstream InFile(std::string(TEST_DATA_PATH) + FileName + ".bin",
+                         +std::ifstream::in | std::ifstream::binary);
+    if (!InFile) {
+      break;
+    }
+
+    InFile.seekg(0, InFile.end);
+    auto FileSize = InFile.tellg();
+    auto RawData = std::make_unique<char[]>(FileSize);
+    InFile.seekg(0, InFile.beg);
+    InFile.read(RawData.get(), FileSize);
+    ASSERT_TRUE(RawData);
+    auto Verifier = flatbuffers::Verifier(
+        reinterpret_cast<const uint8_t *>(RawData.get()), FileSize);
+    ASSERT_TRUE(FileWriter::Schemas::ns10::VerifyCacheEntryBuffer(Verifier));
+    ++i;
+  }
+}
+
+// TEST_F(NicosCacheReaderTest, DeserializeV20CacheEntryValues) {
+//   int i = 0;
+//   while (true) {
+//     std::string FileName =
+//         std::string("/CacheEntry/V20CacheEntry.") + std::to_string(i);
+//     std::cout << std::string(TEST_DATA_PATH) + FileName << "\n";
+//     std::ifstream InFile(std::string(TEST_DATA_PATH) + FileName + ".bin",
+//                          +std::ifstream::in | std::ifstream::binary);
+//     if (!InFile) {
+//       break;
+//     }
+
+//     InFile.seekg(0, InFile.end);
+//     auto FileSize = InFile.tellg();
+//     auto RawData = std::make_unique<char[]>(FileSize);
+//     InFile.seekg(0, InFile.beg);
+//     InFile.read(RawData.get(), FileSize);
+//     nlohmann::json CheckEntry;
+//     std::ifstream CheckFile(std::string(TEST_DATA_PATH) + FileName + ".json",
+//                             +std::ifstream::in);
+//     CheckFile >> CheckEntry;
+//     ASSERT_TRUE(RawData);
+//     auto Verifier = flatbuffers::Verifier(
+//         reinterpret_cast<const uint8_t *>(RawData.get()), FileSize);
+//     ASSERT_TRUE(FileWriter::Schemas::ns10::VerifyCacheEntryBuffer(Verifier));
+//     auto Entry = FileWriter::Schemas::ns10::GetCacheEntry(RawData.get());
+//     EXPECT_EQ(Entry->key()->str(), CheckEntry["key"]);
+//     EXPECT_NEAR(Entry->time(), static_cast<double>(CheckEntry["time"]),
+//     1e-6); EXPECT_EQ(Entry->value()->str(), CheckEntry["value"]);
+//     ++i;
+//   }
+// }
 
 class NicosCacheWriterTest : public ::testing::Test {
 

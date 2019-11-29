@@ -1,0 +1,6 @@
+{
+  key: "nicos/julabo_external_enabled/status",
+  time: 1575063114.693553924561,
+  ttl: 12.0,
+  value: "(999,'Affected PVs: SES-HGNSANS-01:WTctrl-JUL25HL-001:EXTSENS',)"
+}
