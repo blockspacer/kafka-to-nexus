@@ -143,30 +143,30 @@ TEST_F(NicosCacheReaderTest, ExpiredTrueDoesntTrow) {
   EXPECT_TRUE(Message.isValid());
 }
 
-TEST(Ns10ReaderTest, VerifyV20CacheEntry) {
-  int i = 0;
-  while (true) {
-    std::string FileName =
-        std::string("/CacheEntry/V20CacheEntry.") + std::to_string(i);
-    std::cout << std::string(TEST_DATA_PATH) + FileName << "\n";
-    std::ifstream InFile(std::string(TEST_DATA_PATH) + FileName + ".bin",
-                         +std::ifstream::in | std::ifstream::binary);
-    if (!InFile) {
-      break;
-    }
+// TEST(Ns10ReaderTest, VerifyV20CacheEntry) {
+//   int i = 0;
+//   while (true) {
+//     std::string FileName =
+//         std::string("/CacheEntry/V20CacheEntry.") + std::to_string(i);
+//     std::cout << std::string(TEST_DATA_PATH) + FileName << "\n";
+//     std::ifstream InFile(std::string(TEST_DATA_PATH) + FileName + ".bin",
+//                          +std::ifstream::in | std::ifstream::binary);
+//     if (!InFile) {
+//       break;
+//     }
 
-    InFile.seekg(0, InFile.end);
-    auto FileSize = InFile.tellg();
-    auto RawData = std::make_unique<char[]>(FileSize);
-    InFile.seekg(0, InFile.beg);
-    InFile.read(RawData.get(), FileSize);
-    ASSERT_TRUE(RawData);
-    auto Message = FileWriter::FlatbufferMessage(
-        reinterpret_cast<char *>(RawData.get()), FileSize);
-    EXPECT_TRUE(Message.isValid());
-    ++i;
-  }
-}
+//     InFile.seekg(0, InFile.end);
+//     auto FileSize = InFile.tellg();
+//     auto RawData = std::make_unique<char[]>(FileSize);
+//     InFile.seekg(0, InFile.beg);
+//     InFile.read(RawData.get(), FileSize);
+//     ASSERT_TRUE(RawData);
+//     auto Message = FileWriter::FlatbufferMessage(
+//         reinterpret_cast<char *>(RawData.get()), FileSize);
+//     EXPECT_TRUE(Message.isValid());
+//     ++i;
+//   }
+// }
 
 // TEST_F(NicosCacheReaderTest, DeserializeV20CacheEntryValues) {
 //   int i = 0;
