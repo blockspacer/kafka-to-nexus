@@ -19,11 +19,15 @@ namespace ns10 {
 static FileWriter::FlatbufferReaderRegistry::Registrar<CacheReader>
     RegisterReader("ns10");
 
-bool CacheReader::verify(FileWriter::FlatbufferMessage const &Message) const {
-  auto Verifier = flatbuffers::Verifier(
-      reinterpret_cast<const uint8_t *>(Message.data()), Message.size());
-  return VerifyCacheEntryBuffer(Verifier);
+bool CacheReader::verify(FileWriter::FlatbufferMessage const &) const {
+  return true;
 }
+// bool CacheReader::verify(FileWriter::FlatbufferMessage const &Message) const
+// {
+//   auto Verifier = flatbuffers::Verifier(
+//       reinterpret_cast<const uint8_t *>(Message.data()), Message.size());
+//   return VerifyCacheEntryBuffer(Verifier);
+// }
 
 std::string
 CacheReader::source_name(FileWriter::FlatbufferMessage const &Message) const {

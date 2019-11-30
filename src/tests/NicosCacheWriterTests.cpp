@@ -143,7 +143,7 @@ TEST_F(NicosCacheReaderTest, ExpiredTrueDoesntTrow) {
   EXPECT_TRUE(Message.isValid());
 }
 
-TEST_F(NicosCacheReaderTest, VerifyV20CacheEntry) {
+TEST(Ns10ReaderTest, VerifyV20CacheEntry) {
   int i = 0;
   while (true) {
     std::string FileName =
@@ -161,9 +161,9 @@ TEST_F(NicosCacheReaderTest, VerifyV20CacheEntry) {
     InFile.seekg(0, InFile.beg);
     InFile.read(RawData.get(), FileSize);
     ASSERT_TRUE(RawData);
-    auto Verifier = flatbuffers::Verifier(
-        reinterpret_cast<const uint8_t *>(RawData.get()), FileSize);
-    ASSERT_TRUE(FileWriter::Schemas::ns10::VerifyCacheEntryBuffer(Verifier));
+    auto Message = FileWriter::FlatbufferMessage(
+        reinterpret_cast<char *>(RawData.get()), FileSize);
+    EXPECT_TRUE(Message.isValid());
     ++i;
   }
 }
