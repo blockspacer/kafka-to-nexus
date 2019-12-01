@@ -180,6 +180,16 @@ target_compile_definitions(${tgt} PRIVATE ${compile_defs_common})
 target_include_directories(${tgt} PRIVATE ${path_include_common} ${VERSION_INCLUDE_DIR})
 target_link_libraries(${tgt} ${libraries_common} fmt::fmt)
 
+
+set(tgt "Verifier")
+set(sources
+       Verifier.cpp
+        )
+add_executable(${tgt} EXCLUDE_FROM_ALL ${sources})
+target_compile_definitions(${tgt} PRIVATE ${compile_defs_common})
+target_include_directories(${tgt} PRIVATE ${path_include_common} ${VERSION_INCLUDE_DIR})
+target_link_libraries(${tgt} ${libraries_common})
+
 option(BUILD_TESTS "Build unit tests" ON)
 if (BUILD_TESTS)
   add_subdirectory(tests)
