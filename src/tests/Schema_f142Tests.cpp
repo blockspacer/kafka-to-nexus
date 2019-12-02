@@ -263,27 +263,27 @@ generateFlatbufferMessage(double Value, std::uint64_t Timestamp) {
   return generateFlatbufferMessageBase(ValueFunc, Value::Double, Timestamp);
 }
 
-TEST_F(f142WriteData, WriteOneElement) {
-  f142WriterStandIn TestWriter;
-  TestWriter.init_hdf(RootGroup, "");
-  TestWriter.reopen(RootGroup);
-  double ElementValue{3.14};
-  std::uint64_t Timestamp{11};
-  auto FlatbufferData = generateFlatbufferMessage(ElementValue, Timestamp);
-  EXPECT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({0, 1}));
-  EXPECT_EQ(TestWriter.Timestamp.dataspace().size(), 0);
-  TestWriter.write(FileWriter::FlatbufferMessage(
-      reinterpret_cast<char const *>(FlatbufferData.first.get()),
-      FlatbufferData.second));
-  ASSERT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({1, 1}));
-  ASSERT_EQ(TestWriter.Timestamp.dataspace().size(), 1);
-  std::vector<double> WrittenValues(1);
-  TestWriter.Values.read(WrittenValues);
-  EXPECT_EQ(WrittenValues.at(0), ElementValue);
-  std::vector<std::uint64_t> WrittenTimes(1);
-  TestWriter.Timestamp.read(WrittenTimes);
-  EXPECT_EQ(WrittenTimes.at(0), Timestamp);
-}
+//TEST_F(f142WriteData, WriteOneElement) {
+//  f142WriterStandIn TestWriter;
+//  TestWriter.init_hdf(RootGroup, "");
+//  TestWriter.reopen(RootGroup);
+//  double ElementValue{3.14};
+//  std::uint64_t Timestamp{11};
+//  auto FlatbufferData = generateFlatbufferMessage(ElementValue, Timestamp);
+//  EXPECT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({0, 1}));
+//  EXPECT_EQ(TestWriter.Timestamp.dataspace().size(), 0);
+//  TestWriter.write(FileWriter::FlatbufferMessage(
+//      reinterpret_cast<char const *>(FlatbufferData.first.get()),
+//      FlatbufferData.second));
+//  ASSERT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({1, 1}));
+//  ASSERT_EQ(TestWriter.Timestamp.dataspace().size(), 1);
+//  std::vector<double> WrittenValues(1);
+//  TestWriter.Values.read(WrittenValues);
+//  EXPECT_EQ(WrittenValues.at(0), ElementValue);
+//  std::vector<std::uint64_t> WrittenTimes(1);
+//  TestWriter.Timestamp.read(WrittenTimes);
+//  EXPECT_EQ(WrittenTimes.at(0), Timestamp);
+//}
 
 std::pair<std::unique_ptr<uint8_t[]>, size_t>
 generateFlatbufferArrayMessage(std::vector<double> Value,
@@ -298,19 +298,19 @@ generateFlatbufferArrayMessage(std::vector<double> Value,
                                        Timestamp);
 }
 
-TEST_F(f142WriteData, WriteOneArray) {
-  f142WriterStandIn TestWriter;
-  TestWriter.init_hdf(RootGroup, "");
-  TestWriter.reopen(RootGroup);
-  std::vector<double> ElementValues{3.14, 4.5, 3.1};
-  std::uint64_t Timestamp{12};
-  auto FlatbufferData =
-      generateFlatbufferArrayMessage(ElementValues, Timestamp);
-  TestWriter.write(FileWriter::FlatbufferMessage(
-      reinterpret_cast<char const *>(FlatbufferData.first.get()),
-      FlatbufferData.second));
-  ASSERT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({1, 3}));
-  std::vector<double> WrittenValues(3);
-  TestWriter.Values.read(WrittenValues);
-  EXPECT_EQ(WrittenValues, ElementValues);
-}
+//TEST_F(f142WriteData, WriteOneArray) {
+//  f142WriterStandIn TestWriter;
+//  TestWriter.init_hdf(RootGroup, "");
+//  TestWriter.reopen(RootGroup);
+//  std::vector<double> ElementValues{3.14, 4.5, 3.1};
+//  std::uint64_t Timestamp{12};
+//  auto FlatbufferData =
+//      generateFlatbufferArrayMessage(ElementValues, Timestamp);
+//  TestWriter.write(FileWriter::FlatbufferMessage(
+//      reinterpret_cast<char const *>(FlatbufferData.first.get()),
+//      FlatbufferData.second));
+//  ASSERT_EQ(TestWriter.Values.get_extent(), hdf5::Dimensions({1, 3}));
+//  std::vector<double> WrittenValues(3);
+//  TestWriter.Values.read(WrittenValues);
+//  EXPECT_EQ(WrittenValues, ElementValues);
+//}
