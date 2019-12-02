@@ -50,6 +50,7 @@ public:
 private:
   void createAdcDatasets(hdf5::node::Group &HDFGroup) const;
   bool RecordAdcPulseDebugData = false;
+  int MultiplicativeFactor = 1;
   NeXusDataset::Amplitude AmplitudeDataset;
   NeXusDataset::PeakArea PeakAreaDataset;
   NeXusDataset::Background BackgroundDataset;

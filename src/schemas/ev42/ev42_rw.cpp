@@ -99,6 +99,12 @@ void HDFWriterModule::parse_config(std::string const &ConfigurationStream) {
     Logger->trace("adc_pulse_debug: {}", RecordAdcPulseDebugData);
   } catch (...) { /* it's ok if not found */
   }
+  try {
+    MultiplicativeFactor =
+        ConfigurationStreamJson["multiplicative_factor"].get<int>();
+    Logger->trace("multiplicative_factor: {}", MultiplicativeFactor);
+  } catch (...) { /* it's ok if not found */
+  }
 }
 
 void HDFWriterModule::createAdcDatasets(hdf5::node::Group &HDFGroup) const {
@@ -225,16 +231,19 @@ void HDFWriterModule::reopenAdcDatasets(const hdf5::node::Group &HDFGroup) {
 
 void HDFWriterModule::write(FlatbufferMessage const &Message) {
   auto EventMsgFlatbuffer = GetEventMessage(Message.data());
-  EventTimeOffset.appendArray(
-      getFBVectorAsArrayAdapter(EventMsgFlatbuffer->time_of_flight()));
-  EventId.appendArray(
-      getFBVectorAsArrayAdapter(EventMsgFlatbuffer->detector_id()));
+  for (int i = 0; i < MultiplicativeFactor; ++i) {
+    EventTimeOffset.appendArray(
+        getFBVectorAsArrayAdapter(EventMsgFlatbuffer->time_of_flight()));
+    EventId.appendArray(
+        getFBVectorAsArrayAdapter(EventMsgFlatbuffer->detector_id()));
+  }
   if (EventMsgFlatbuffer->time_of_flight()->size() !=
       EventMsgFlatbuffer->detector_id()->size()) {
     Logger->warn("written data lengths differ");
   }
   auto CurrentRefTime = EventMsgFlatbuffer->pulse_time();
-  auto CurrentNumberOfEvents = EventMsgFlatbuffer->detector_id()->size();
+  auto CurrentNumberOfEvents =
+      MultiplicativeFactor * EventMsgFlatbuffer->detector_id()->size();
   EventTimeZero.appendElement(CurrentRefTime);
   EventIndex.appendElement(EventsWritten);
   EventsWritten += CurrentNumberOfEvents;

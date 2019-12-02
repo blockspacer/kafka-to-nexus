@@ -486,3 +486,66 @@ TEST_F(EventWriterTests,
               testing::ContainerEq(ThresholdTime));
   EXPECT_THAT(AdcInfoFromFile.PeakTime, testing::ContainerEq(PeakTime));
 }
+
+TEST_F(EventWriterTests, WriterRecordsMoreDataWhenMultiplicativeFactorIsSet) {
+  // Test the hack to write data to file at higher rates
+  uint64_t const PulseTime = 42;
+  std::vector<uint32_t> TimeOfFlight = {0, 1, 2};
+  std::vector<uint32_t> DetectorID = {3, 4, 5};
+  auto MessageBuffer = generateFlatbufferData("TestSource", 0, PulseTime,
+                                              TimeOfFlight, DetectorID);
+  FileWriter::FlatbufferMessage TestMessage(
+      reinterpret_cast<const char *>(MessageBuffer.data()),
+      MessageBuffer.size());
+
+  // Create writer and give it the message to write
+  {
+    ev42::HDFWriterModule Writer;
+    auto JsonConfig = nlohmann::json::parse(R""({
+      "multiplicative_factor": 2
+    })"");
+    Writer.parse_config(JsonConfig.dump());
+    EXPECT_TRUE(Writer.init_hdf(TestGroup, "{}") == InitResult::OK);
+    EXPECT_TRUE(Writer.reopen(TestGroup) == InitResult::OK);
+    EXPECT_NO_THROW(Writer.write(TestMessage));
+  } // These braces are required due to "h5.cpp"
+
+  // Read data from the file
+  auto EventTimeOffsetDataset = TestGroup.get_dataset("event_time_offset");
+  auto EventTimeZeroDataset = TestGroup.get_dataset("event_time_zero");
+  auto EventIndexDataset = TestGroup.get_dataset("event_index");
+  auto EventIDDataset = TestGroup.get_dataset("event_id");
+  std::vector<uint32_t> EventTimeOffset(
+      EventTimeOffsetDataset.dataspace().size());
+  std::vector<uint64_t> EventTimeZero(EventTimeZeroDataset.dataspace().size());
+  std::vector<uint32_t> EventIndex(EventIndexDataset.dataspace().size());
+  std::vector<uint32_t> EventID(EventIDDataset.dataspace().size());
+  EventTimeOffsetDataset.read(EventTimeOffset);
+  EventTimeZeroDataset.read(EventTimeZero);
+  EventIndexDataset.read(EventIndex);
+  EventIDDataset.read(EventID);
+
+  // Repeat the input value vectors as the multiplicative factor is two
+  repeatVector(TimeOfFlight);
+  repeatVector(DetectorID);
+
+  // Test data in file matches what we originally put in the message
+  EXPECT_THAT(EventTimeOffset, testing::ContainerEq(TimeOfFlight))
+      << "Expected event_time_offset dataset to contain the time of flight "
+         "values from the message";
+  EXPECT_EQ(EventTimeZero.size(), 1U)
+      << "Expected event_time_zero to contain a "
+         "single value, as we wrote a single "
+         "message";
+  EXPECT_EQ(EventTimeZero[0], PulseTime)
+      << "Expected event_time_zero to contain the pulse time from the message";
+  EXPECT_EQ(EventIndex.size(), 1U)
+      << "Expected event_index to contain a single "
+         "value, as we wrote a single message";
+  EXPECT_EQ(EventIndex[0], 0U)
+      << "Expected single event_index value to be zero "
+         "as we wrote only one message";
+  EXPECT_THAT(EventID, testing::ContainerEq(DetectorID))
+      << "Expected event_id dataset to contain the detector ID "
+         "values from the message";
+}
