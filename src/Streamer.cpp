@@ -257,12 +257,18 @@ ProcessMessageResult Streamer::processMessage(
     return ProcessMessageResult::OK;
   }
 
-  if (messageTimestampIsBeforeStartTimestamp(Message->getTimestamp(),
-                                             Options.StartTimestamp) ||
-      messageTimestampIsAfterStopTimestamp(Message->getTimestamp(),
-                                           Options.StopTimestamp)) {
-    // ignore message and carry on
-    return ProcessMessageResult::OK;
+  auto search = KnownSourceNames.find(Message->getSourceName());
+
+  if (search != KnownSourceNames.end()) {
+    if (messageTimestampIsBeforeStartTimestamp(Message->getTimestamp(),
+                                               Options.StartTimestamp) ||
+        messageTimestampIsAfterStopTimestamp(Message->getTimestamp(),
+                                             Options.StopTimestamp)) {
+      // ignore message and carry on
+      return ProcessMessageResult::OK;
+    }
+  } else {
+    KnownSourceNames.emplace(Message->getSourceName());
   }
 
   // Collect information about the data received

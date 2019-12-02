@@ -22,6 +22,7 @@
 #include <chrono>
 #include <future>
 #include <utility>
+#include <set>
 
 namespace FileWriter {
 using ConsumerPtr = std::unique_ptr<KafkaW::ConsumerInterface>;
@@ -100,6 +101,8 @@ protected:
       ConsumerInitialised;
 
 private:
+  std::set<std::string> KnownSourceNames;
+
   bool ifConsumerIsReadyThenAssignIt();
   bool stopTimeExceeded(FileWriter::DemuxTopic &MessageProcessor);
 
