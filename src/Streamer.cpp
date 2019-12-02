@@ -257,9 +257,9 @@ ProcessMessageResult Streamer::processMessage(
     return ProcessMessageResult::OK;
   }
 
-  auto search = KnownSourceNames.find(Message->getSourceName());
+  auto Source = KnownSourceNames.find(Message->getSourceName());
 
-  if (search != KnownSourceNames.end()) {
+  if (Source != KnownSourceNames.end()) {
     if (messageTimestampIsBeforeStartTimestamp(Message->getTimestamp(),
                                                Options.StartTimestamp) ||
         messageTimestampIsAfterStopTimestamp(Message->getTimestamp(),
