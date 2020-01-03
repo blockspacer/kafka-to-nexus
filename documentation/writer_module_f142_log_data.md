@@ -52,6 +52,11 @@ For arrays, we have to specify the `array_size`:
 The json paths of these settings are given relative to the object which holds
 the `array_size` key in the above examples.
 
+* `record_alarms` (bool)
+  If present and set to `true`, indicates the writer should create `alarm_time`,
+  `alarm_status` and `alarm_severity` datasets in the `NXlog` group. The initial
+  value and any subsequent changes in alarm status and severity will be recorded
+  in these datasets.
 * `nexus.indices.index_every_mb` (int)
   Write an index entry (in Nexus terminology: cue entry) every given megabytes.
 * `nexus.indices.index_every_kb` (int)
