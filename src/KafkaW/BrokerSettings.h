@@ -25,7 +25,7 @@ struct BrokerSettings {
   int ConsumerCloseTimeoutMS = 5000;
   std::map<std::string, std::string> KafkaConfiguration = {
       {"metadata.request.timeout.ms", "60000"}, // 60 Secs
-      {"socket.timeout.ms", "2000"},
+      {"socket.timeout.ms", "60000"},
       {"message.max.bytes", "24000000"},
       {"fetch.message.max.bytes", "24000000"},
       {"fetch.max.bytes",
